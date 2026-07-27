@@ -16,7 +16,12 @@
 
 ## 已核实的 SillyTavern 事实（staging 分支，2026-07-27）
 
-- 扩展路径：`/scripts/extensions/third-party/<name>/`；import 用 `../../../script.js`、`../../extensions.js`
+- 扩展路径：`/scripts/extensions/third-party/<name>/`，通过 `<script type="module">` 加载，
+  **任何静态 import 404 都会报 `[object Event]` 加载失败**
+- import 深度（已用官方第三方扩展 Extension-TopInfoBar 验证）：
+  - 根目录 index.js：`../../../../script.js`、`../../../extensions.js`
+  - src/ 下模块：`../../../../../script.js`、`../../../../extensions.js`、`../../../../RossAscends-mods.js`
+  - 注意：`../../../script.js` + `../../extensions.js` 是**内置扩展**（如 regex）的写法，第三方多一级
 - 事件：`STREAM_TOKEN_RECEIVED`、`GENERATION_STARTED/ENDED/STOPPED`、`MESSAGE_*`、
   `CHAT_CHANGED`（值是 `'chat_id_changed'`，勿硬编码）、`MORE_MESSAGES_LOADED`、
   `CHARACTER_MESSAGE_RENDERED` / `USER_MESSAGE_RENDERED`

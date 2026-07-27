@@ -11,7 +11,7 @@
 // DOM nodes are never removed: ST's mesid lookups, edit/swipe and find-in-page
 // (browsers auto-reveal content-visibility for matches) keep working.
 
-import { eventSource, event_types } from '../../../../script.js';
+import { eventSource, event_types } from '../../../../../script.js';
 import { layout } from '../lib/pretext.js';
 import { getTextMetrics, prepareCached } from './utils.js';
 

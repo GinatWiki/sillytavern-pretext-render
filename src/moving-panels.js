@@ -7,9 +7,9 @@
 // and ST restores them on load via loadMovingUIState() — our own persistence
 // is only needed to remember WHICH panels were picked.
 
-import { saveSettingsDebounced } from '../../../../script.js';
-import { dragElement } from '../../../../scripts/RossAscends-mods.js';
-import { power_user } from '../../../../scripts/power-user.js';
+import { saveSettingsDebounced } from '../../../../../script.js';
+import { dragElement } from '../../../../RossAscends-mods.js';
+import { power_user } from '../../../../power-user.js';
 import { saveSettings } from './settings.js';
 
 // Already wired by ST's initMovingUI — don't double-register.

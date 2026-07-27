@@ -5,7 +5,7 @@
 // wrapped line in pure arithmetic, so we can pin the bubble to exactly that
 // width. Skips messages with content whose width isn't text-driven.
 
-import { eventSource, event_types } from '../../../../script.js';
+import { eventSource, event_types } from '../../../../../script.js';
 import { measureLineStats, measureNaturalWidth } from '../lib/pretext.js';
 import { getTextMetrics, prepareCached, rafThrottle } from './utils.js';
 

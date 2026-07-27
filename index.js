@@ -1,7 +1,7 @@
 // Pretext 渲染增强 — SillyTavern third-party extension entry point.
 // Wires settings UI and feature modules to SillyTavern events.
 
-import { eventSource, event_types } from '../../script.js';
+import { eventSource, event_types } from '../../../../script.js';
 import { loadSettings, buildSettingsPanel } from './src/settings.js';
 import { clearPreparedCache } from './src/utils.js';
 import * as inputAutosize from './src/input-autosize.js';
