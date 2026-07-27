@@ -96,7 +96,12 @@ export function buildSettingsPanel(settings, modules) {
             </div>
         </div>`;
 
-    $('#extensions_settings2').append(html);
+    // ST has two side-by-side containers; some versions/themes only populate
+    // one. Fall back so the panel always lands somewhere visible.
+    const $container = $('#extensions_settings2').length
+        ? $('#extensions_settings2')
+        : $('#extensions_settings');
+    $container.append(html);
 
     for (const f of FEATURES) {
         $(`#ptr-${f.key}`).on('change', function () {
