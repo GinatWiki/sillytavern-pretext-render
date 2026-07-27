@@ -93,6 +93,34 @@ body.ptr-picker-active {
     cursor: crosshair !important;
 }
 
+.ptr-pick-pending {
+    outline: 3px solid var(--SmartThemeQuoteColor, #4caf50) !important;
+    outline-offset: 2px;
+}
+
+/* F12-style confirm bar */
+.ptr-confirm-bar {
+    position: fixed;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 31000;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 14px;
+    border-radius: 8px;
+    background: var(--SmartThemeBlurColor, rgba(20, 20, 30, 0.95));
+    color: var(--SmartThemeBodyColor, #eee);
+    border: 1px solid var(--SmartThemeBorderColor, #555);
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5);
+}
+
+.ptr-confirm-bar .menu_button {
+    margin: 0;
+    padding: 4px 14px;
+}
+
 /* Registered panel list in settings */
 .ptr-panel-list {
     display: flex;

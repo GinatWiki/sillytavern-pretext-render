@@ -118,11 +118,43 @@ function unwirePanel(el, { keepState = true, keepRegistry = false } = {}) {
     // without a drag-grabber header / CSS resize.
 }
 
-// --- Picker mode --------------------------------------------------------------
+// --- Picker mode (F12-style: hover -> click -> confirm) ----------------------
 
 let hoverEl = null;
+let confirmBar = null;
+let pendingEl = null;
+
+function showConfirmBar(el) {
+    hideConfirmBar();
+    pendingEl = el;
+    el.classList.add('ptr-pick-pending');
+    confirmBar = document.createElement('div');
+    confirmBar.className = 'ptr-pick-ui ptr-confirm-bar';
+    confirmBar.innerHTML = `
+        <span>已选中 <b>#${el.id}</b>，使其可自由移动？</span>
+        <button class="menu_button" data-act="ok">确认</button>
+        <button class="menu_button" data-act="cancel">取消</button>`;
+    document.body.appendChild(confirmBar);
+    confirmBar.querySelector('[data-act="ok"]').addEventListener('click', () => {
+        const target = pendingEl;
+        hideConfirmBar();
+        exitPicker();
+        wirePanel(target);
+        renderExtras();
+        toastr.success(`子窗口 #${target.id} 已可拖动 / 调整大小，位置和尺寸会自动记忆`, 'Pretext 渲染增强');
+    });
+    confirmBar.querySelector('[data-act="cancel"]').addEventListener('click', hideConfirmBar);
+}
+
+function hideConfirmBar() {
+    pendingEl?.classList.remove('ptr-pick-pending');
+    pendingEl = null;
+    confirmBar?.remove();
+    confirmBar = null;
+}
 
 function onPickerOver(e) {
+    if (e.target.closest?.('.ptr-pick-ui')) return; // don't pick our own UI
     const el = e.target.closest?.('div,section,aside,form');
     if (hoverEl === el) return;
     hoverEl?.classList.remove('ptr-pick-candidate');
@@ -131,14 +163,17 @@ function onPickerOver(e) {
 }
 
 function onPickerClick(e) {
-    if (!hoverEl) return;
+    if (e.target.closest?.('.ptr-pick-ui')) return; // confirm bar handles itself
     e.preventDefault();
     e.stopPropagation();
     const el = hoverEl;
-    exitPicker();
-    wirePanel(el);
-    renderExtras();
-    toastr.success(`子窗口 #${el.id} 已可拖动/调整大小`, 'Pretext 渲染增强');
+    if (!el) {
+        toastr.warning('该元素不可拾取：需要是有 id 的浮动面板（fixed/absolute 定位）', 'Pretext 渲染增强');
+        return;
+    }
+    hoverEl.classList.remove('ptr-pick-candidate');
+    hoverEl = null;
+    showConfirmBar(el);
 }
 
 function onPickerKey(e) {
@@ -153,7 +188,7 @@ function enterPicker() {
     document.addEventListener('keydown', onPickerKey, true);
     document.body.classList.add('ptr-picker-active');
     renderExtras();
-    toastr.info('点击一个浮动子窗口使其可拖动，Esc 取消', 'Pretext 渲染增强');
+    toastr.info('像 F12 选取元素一样点击一个浮动面板，确认后即可拖动；Esc 取消', 'Pretext 渲染增强');
 }
 
 function exitPicker() {
@@ -165,6 +200,7 @@ function exitPicker() {
     document.body.classList.remove('ptr-picker-active');
     hoverEl?.classList.remove('ptr-pick-candidate');
     hoverEl = null;
+    hideConfirmBar();
     renderExtras();
 }
 
@@ -209,7 +245,7 @@ function renderExtras() {
             <div class="menu_button" id="ptr-picker-toggle">
                 ${pickerActive ? '取消拾取 (Esc)' : '拾取子窗口…'}
             </div>
-            <small class="ptr-hint">点击页面上任意浮动面板（含其他扩展添加的），即可拖动并记忆位置/尺寸</small>
+            <small class="ptr-hint">用法：① 点上方按钮进入拾取模式 ② 像 F12 选元素一样点击页面上的浮动面板（含其他扩展添加的）③ 确认后即可拖动 / 拖右下角调宽高，位置尺寸自动记忆</small>
         </div>
         <div class="ptr-panel-list">${list}</div>
     `);

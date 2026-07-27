@@ -52,7 +52,8 @@ const FEATURES = [
     {
         key: 'movingPanels',
         label: '子窗口自由移动',
-        hint: '增强 MovingUI：主聊天窗口之外的子面板也可拖动并记住位置',
+        hint: '增强 MovingUI：开启后用下方"拾取子窗口…"按钮选择任意浮动面板，即可拖动/调宽高并自动记忆',
+        enabledToast: '已开启。点击下方"拾取子窗口…"按钮，像 F12 选元素一样点选一个浮动面板',
     },
 ];
 
@@ -103,7 +104,12 @@ export function buildSettingsPanel(settings, modules) {
             saveSettings();
             const mod = modules[f.key];
             if (!mod) return;
-            if (this.checked) mod.enable(); else mod.disable();
+            if (this.checked) {
+                mod.enable();
+                if (f.enabledToast) toastr.info(f.enabledToast, 'Pretext 渲染增强');
+            } else {
+                mod.disable();
+            }
             updateExtraVisibility();
         });
     }
