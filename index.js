@@ -26,6 +26,7 @@ jQuery(async () => {
     }
 
     buildSettingsPanel(settings, MODULES);
+    movingPanels.buildSettingsExtras?.();
 
     for (const [key, mod] of Object.entries(MODULES)) {
         if (settings[key]) mod.enable?.();

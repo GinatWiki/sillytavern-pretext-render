@@ -1,15 +1,259 @@
-// Moving panels — enhanced MovingUI (STUB, pending source research).
-// Goal: ST's native MovingUI only drags the main chat window; this module will
-// let the user pick sub-panels and drag them freely, persisting positions.
+// Moving panels — extend ST's native MovingUI to arbitrary sub-panels.
+//
+// Native MovingUI (RossAscends-mods.js dragElement) only wires 7 hardcoded
+// ids. This module adds a picker: click any floating panel (including ones
+// created by OTHER extensions) to make it draggable + resizable. We reuse the
+// native dragElement, so positions/sizes persist into power_user.movingUIState
+// and ST restores them on load via loadMovingUIState() — our own persistence
+// is only needed to remember WHICH panels were picked.
+
+import { saveSettingsDebounced } from '../../../../script.js';
+import { dragElement } from '../../../../scripts/RossAscends-mods.js';
+import { power_user } from '../../../../scripts/power-user.js';
+import { saveSettings } from './settings.js';
+
+// Already wired by ST's initMovingUI — don't double-register.
+const NATIVE_IDS = new Set([
+    'sheld', 'left-nav-panel', 'right-nav-panel',
+    'WorldInfo', 'floatingPrompt', 'logprobsViewer', 'cfgConfig',
+]);
 
 let settings = null;
+let enabled = false;
+let pickerActive = false;
+let domObserver = null;
+let settingsRoot = null; // jQuery container for the extras UI
+
+// settings.movingPanelsList: { [panelId]: { injectedHeader: boolean } }
+function registry() {
+    if (!settings.movingPanelsList) settings.movingPanelsList = {};
+    return settings.movingPanelsList;
+}
+
+// --- Panel wiring -----------------------------------------------------------
+
+function isCandidate(el) {
+    if (!el || !el.id || !(el instanceof HTMLElement)) return false;
+    if (NATIVE_IDS.has(el.id)) return false;
+    if (el.closest('.pretext-render-settings')) return false;
+    if (el.classList.contains('ptr-drag-handle')) return false;
+    const cs = getComputedStyle(el);
+    if (cs.position !== 'fixed' && cs.position !== 'absolute') return false;
+    if (cs.display === 'none' || cs.visibility === 'hidden') return false;
+    const r = el.getBoundingClientRect();
+    return r.width >= 120 && r.height >= 80;
+}
+
+function ensureMovingUiOn() {
+    if (power_user.movingUI === true) return;
+    power_user.movingUI = true;
+    $('body').toggleClass('movingUI', true);
+    saveSettingsDebounced();
+    console.log('[pretext-render] moving-panels: enabled ST MovingUI');
+}
+
+function ensureDragHandle(el) {
+    const headerId = `${el.id}header`;
+    let header = document.getElementById(headerId);
+    if (header) return false; // panel already has a native-style header
+    header = document.createElement('div');
+    header.id = headerId;
+    // dragElement only starts a drag when the mousedown target itself
+    // carries .drag-grabber — make the whole handle the grabber.
+    header.className = 'ptr-drag-handle drag-grabber';
+    header.textContent = '⠿';
+    el.prepend(header);
+    return true;
+}
+
+function wirePanel(el) {
+    if (!el || el.dataset.ptrWired) return;
+    ensureMovingUiOn();
+
+    const injectedHeader = ensureDragHandle(el);
+    el.classList.add('ptr-movable');
+
+    // CSS resize needs non-visible overflow.
+    const cs = getComputedStyle(el);
+    if (cs.overflow === 'visible') {
+        el.dataset.ptrOverflowFix = el.style.overflow ?? '';
+        el.style.overflow = 'auto';
+    }
+
+    dragElement($(el));
+
+    // Re-apply a previously saved position (ST's restore ran before this
+    // panel existed in the DOM).
+    const saved = power_user.movingUIState?.[el.id];
+    if (saved) $(el).css(saved);
+
+    el.dataset.ptrWired = '1';
+    // Preserve a previous injectedHeader record so we still remove OUR handle
+    // on unwire even if the panel now reports a header.
+    const prev = registry()[el.id];
+    registry()[el.id] = { injectedHeader: prev?.injectedHeader || injectedHeader };
+    saveSettings();
+}
+
+function unwirePanel(el, { keepState = true, keepRegistry = false } = {}) {
+    if (!el) return;
+    const entry = registry()[el.id];
+    if (entry?.injectedHeader) {
+        document.getElementById(`${el.id}header`)?.remove();
+        entry.injectedHeader = false;
+    }
+    el.classList.remove('ptr-movable');
+    if (el.dataset.ptrOverflowFix !== undefined) {
+        el.style.overflow = el.dataset.ptrOverflowFix;
+        delete el.dataset.ptrOverflowFix;
+    }
+    delete el.dataset.ptrWired;
+    if (!keepRegistry) delete registry()[el.id];
+    if (!keepState && power_user.movingUIState) {
+        delete power_user.movingUIState[el.id];
+        saveSettingsDebounced();
+    }
+    saveSettings();
+    // Note: native dragElement's own listeners stay attached but are inert
+    // without a drag-grabber header / CSS resize.
+}
+
+// --- Picker mode --------------------------------------------------------------
+
+let hoverEl = null;
+
+function onPickerOver(e) {
+    const el = e.target.closest?.('div,section,aside,form');
+    if (hoverEl === el) return;
+    hoverEl?.classList.remove('ptr-pick-candidate');
+    hoverEl = isCandidate(el) ? el : null;
+    hoverEl?.classList.add('ptr-pick-candidate');
+}
+
+function onPickerClick(e) {
+    if (!hoverEl) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const el = hoverEl;
+    exitPicker();
+    wirePanel(el);
+    renderExtras();
+    toastr.success(`子窗口 #${el.id} 已可拖动/调整大小`, 'Pretext 渲染增强');
+}
+
+function onPickerKey(e) {
+    if (e.key === 'Escape') exitPicker();
+}
+
+function enterPicker() {
+    if (pickerActive) return;
+    pickerActive = true;
+    document.addEventListener('mouseover', onPickerOver, true);
+    document.addEventListener('click', onPickerClick, true);
+    document.addEventListener('keydown', onPickerKey, true);
+    document.body.classList.add('ptr-picker-active');
+    renderExtras();
+    toastr.info('点击一个浮动子窗口使其可拖动，Esc 取消', 'Pretext 渲染增强');
+}
+
+function exitPicker() {
+    if (!pickerActive) return;
+    pickerActive = false;
+    document.removeEventListener('mouseover', onPickerOver, true);
+    document.removeEventListener('click', onPickerClick, true);
+    document.removeEventListener('keydown', onPickerKey, true);
+    document.body.classList.remove('ptr-picker-active');
+    hoverEl?.classList.remove('ptr-pick-candidate');
+    hoverEl = null;
+    renderExtras();
+}
+
+// --- DOM watcher: wire picked panels that (re)appear later -------------------
+
+function scanAdded(nodes) {
+    const reg = registry();
+    for (const node of nodes) {
+        if (!(node instanceof HTMLElement)) continue;
+        if (node.id && reg[node.id]) wirePanel(node);
+        for (const id of Object.keys(reg)) {
+            const inner = node.querySelector?.(`#${CSS.escape(id)}`);
+            if (inner) wirePanel(inner);
+        }
+    }
+}
+
+function startObserver() {
+    domObserver = new MutationObserver(muts => {
+        const added = muts.flatMap(m => [...m.addedNodes]);
+        if (added.length) scanAdded(added);
+    });
+    domObserver.observe(document.body, { childList: true, subtree: true });
+}
+
+// --- Settings extras UI -------------------------------------------------------
+
+function renderExtras() {
+    if (!settingsRoot) return;
+    const reg = registry();
+    const ids = Object.keys(reg);
+    const list = ids.length
+        ? ids.map(id => `
+            <div class="ptr-panel-item">
+                <span title="${id}">#${id}</span>
+                <span class="ptr-panel-remove fa-solid fa-xmark" data-ptr-remove="${id}" title="移除"></span>
+            </div>`).join('')
+        : '<small class="ptr-hint">尚未选择任何子窗口</small>';
+
+    settingsRoot.html(`
+        <div class="ptr-setting-row">
+            <div class="menu_button" id="ptr-picker-toggle">
+                ${pickerActive ? '取消拾取 (Esc)' : '拾取子窗口…'}
+            </div>
+            <small class="ptr-hint">点击页面上任意浮动面板（含其他扩展添加的），即可拖动并记忆位置/尺寸</small>
+        </div>
+        <div class="ptr-panel-list">${list}</div>
+    `);
+
+    settingsRoot.find('#ptr-picker-toggle').on('click', () => {
+        pickerActive ? exitPicker() : enterPicker();
+    });
+    settingsRoot.find('[data-ptr-remove]').on('click', function () {
+        const id = $(this).data('ptr-remove');
+        unwirePanel(document.getElementById(id), { keepState: false });
+        renderExtras();
+    });
+}
+
+/** Called by index.js after the settings panel exists. */
+export function buildSettingsExtras() {
+    settingsRoot = $('[data-ptr-extra="movingPanels"]');
+    if (settingsRoot.length) renderExtras();
+}
+
+// --- Module lifecycle -----------------------------------------------------------
 
 export function init(s) {
     settings = s;
 }
 
 export function enable() {
-    console.warn('[pretext-render] moving-panels: not implemented yet');
+    if (enabled) return;
+    enabled = true;
+    const reg = registry();
+    for (const id of Object.keys(reg)) {
+        const el = document.getElementById(id);
+        if (el) wirePanel(el);
+    }
+    startObserver();
 }
 
-export function disable() {}
+export function disable() {
+    if (!enabled) return;
+    enabled = false;
+    exitPicker();
+    domObserver?.disconnect();
+    domObserver = null;
+    for (const id of Object.keys(registry())) {
+        unwirePanel(document.getElementById(id), { keepState: true, keepRegistry: true });
+    }
+}

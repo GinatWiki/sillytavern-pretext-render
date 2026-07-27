@@ -55,21 +55,68 @@
 
 /* --- Moving panels --- */
 .ptr-movable {
-    position: fixed !important;
+    resize: both; /* native dragElement watches inline size changes */
     z-index: 1000;
-    margin: 0;
-}
-
-.ptr-movable.ptr-dragging {
-    user-select: none;
-    opacity: 0.92;
 }
 
 .ptr-drag-handle {
     cursor: grab;
     touch-action: none;
+    width: 100%;
+    height: 16px;
+    line-height: 16px;
+    text-align: center;
+    font-size: 11px;
+    letter-spacing: 4px;
+    opacity: 0.5;
+    background: var(--SmartThemeBlurColor, rgba(0, 0, 0, 0.25));
+    border-radius: 4px 4px 0 0;
+    user-select: none;
+}
+
+.ptr-drag-handle:hover {
+    opacity: 0.9;
 }
 
 .ptr-drag-handle:active {
     cursor: grabbing;
+}
+
+/* Picker mode */
+body.ptr-picker-active {
+    cursor: crosshair;
+}
+
+.ptr-pick-candidate {
+    outline: 2px dashed var(--SmartThemeQuoteColor, #4caf50) !important;
+    outline-offset: 2px;
+    cursor: crosshair !important;
+}
+
+/* Registered panel list in settings */
+.ptr-panel-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 4px;
+}
+
+.ptr-panel-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 8px;
+    border: 1px solid var(--SmartThemeBorderColor, #555);
+    border-radius: 10px;
+    font-size: 0.85em;
+}
+
+.ptr-panel-remove {
+    cursor: pointer;
+    opacity: 0.6;
+}
+
+.ptr-panel-remove:hover {
+    opacity: 1;
+    color: var(--SmartThemeQuoteColor, #e57373);
 }

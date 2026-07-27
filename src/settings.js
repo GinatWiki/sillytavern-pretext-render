@@ -14,6 +14,7 @@ export const DEFAULT_SETTINGS = {
     virtualScroll: true,       // content-visibility virtualization for long chats
     virtualOverscan: 3,        // screens beyond viewport kept fully rendered
     movingPanels: false,       // enhanced MovingUI: drag any panel
+    movingPanelsList: {},      // picked panel ids -> { injectedHeader }
 };
 
 export function loadSettings() {
@@ -78,6 +79,7 @@ export function buildSettingsPanel(settings, modules) {
                 </div>
                 <div class="inline-drawer-content">
                     ${rows}
+                    <div class="ptr-setting-row" data-ptr-extra="movingPanels"></div>
                     <div class="ptr-setting-row" data-ptr-extra="virtualScroll">
                         <label for="ptr-virtualOverscan">预渲染屏数</label>
                         <input type="number" id="ptr-virtualOverscan" class="text_pole"
@@ -116,6 +118,7 @@ export function buildSettingsPanel(settings, modules) {
 
     function updateExtraVisibility() {
         $('[data-ptr-extra="virtualScroll"]').toggle(!!settings.virtualScroll);
+        $('[data-ptr-extra="movingPanels"]').toggle(!!settings.movingPanels);
     }
     updateExtraVisibility();
 }

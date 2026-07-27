@@ -12,7 +12,7 @@
 | 4 | 流式输出防跳动 | ✅ 已实现，待实测 | `src/stream-stabilizer.js` |
 | 5 | 气泡宽度收缩 | ✅ 已实现，待实测 | `src/bubble-shrinkwrap.js` |
 | 6 | 长聊天虚拟滚动 | ✅ 已实现，待实测 | `src/virtual-scroll.js` |
-| 7 | MovingUI 子窗口移动 | 🔨 研究中（stub） | `src/moving-panels.js` |
+| 7 | MovingUI 子窗口移动（拖动+记忆位置+调宽高） | ✅ 已实现，待实测 | `src/moving-panels.js` |
 
 ## 已核实的 SillyTavern 事实（staging 分支，2026-07-27）
 
@@ -45,6 +45,18 @@
 ### 输入框：field-sizing 冲突处理
 - 启用时给 `#send_textarea` 加 `field-sizing: fixed`（CSS 类 `ptr-autosized`）接管高度控制
 - 尾随换行追加零宽空格 `\u200b` 使最后一行空行被计入（pretext 空串返回 0 行）
+
+### 子窗口移动：复用原生 dragElement，而非自造轮子
+- ST 原生 MovingUI（`public/scripts/RossAscends-mods.js` 导出 `dragElement`）已实现拖动 + 右下角
+  16px 调整大小 + 持久化到 `power_user.movingUIState[id]`，且 `loadMovingUIState()` 会恢复
+  state 中任意 id —— 直接复用，位置/尺寸持久化与恢复自动获得
+- 原生只注册 7 个固定 id（#sheld/#left-nav-panel/#right-nav-panel/#WorldInfo/#floatingPrompt/
+  #logprobsViewer/#cfgConfig），这就是"只能移动主聊天窗口"感受的来源
+- 增强方式：**拾取模式**——设置面板点"拾取子窗口"后点击任意浮动面板（fixed/absolute、≥120×80、
+  有 id，含其他扩展添加的），自动注入拖动手柄（`#<id>header.drag-grabber`）并调用 dragElement
+- 其他扩展延迟创建的面板：body 级 MutationObserver 监听，注册过的 id 一出现即接管
+- 已选面板清单存于扩展设置 `movingPanelsList`；移除面板可选择同时删除其位置记录
+- 拖动依赖 `power_user.movingUI === true`，首次拾取时自动打开 ST 的 MovingUI 开关
 
 ### 气泡收缩：默认关闭
 - 主题差异大，含 `pre/table/img/iframe/video/hr` 的消息自动跳过
