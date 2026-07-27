@@ -98,10 +98,10 @@ body.ptr-picker-active {
     outline-offset: 2px;
 }
 
-/* F12-style confirm bar */
-.ptr-confirm-bar {
+/* F12-style confirm bar (top) + persistent picker bar (bottom) */
+.ptr-confirm-bar,
+.ptr-picker-bar {
     position: fixed;
-    top: 12px;
     left: 50%;
     transform: translateX(-50%);
     z-index: 31000;
@@ -116,7 +116,16 @@ body.ptr-picker-active {
     box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5);
 }
 
-.ptr-confirm-bar .menu_button {
+.ptr-confirm-bar {
+    top: 12px;
+}
+
+.ptr-picker-bar {
+    bottom: 12px;
+}
+
+.ptr-confirm-bar .menu_button,
+.ptr-picker-bar .menu_button {
     margin: 0;
     padding: 4px 14px;
 }

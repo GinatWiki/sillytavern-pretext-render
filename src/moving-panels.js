@@ -123,6 +123,50 @@ function unwirePanel(el, { keepState = true, keepRegistry = false } = {}) {
 let hoverEl = null;
 let confirmBar = null;
 let pendingEl = null;
+let pickerBar = null;
+// [element, openClass] pairs we temporarily closed on picker entry.
+let closedForPick = [];
+
+// ST drawers cover most of the screen; picking behind them is impossible.
+// Close every open drawer on entry, restore on exit.
+function closeObscuringDrawers() {
+    closedForPick = [];
+    for (const el of document.querySelectorAll('.drawer-content.openDrawer')) {
+        el.classList.remove('openDrawer');
+        el.classList.add('closedDrawer');
+        closedForPick.push([el, 'openDrawer']);
+        const icon = el.closest('.drawer')?.querySelector('.drawer-icon.openIcon');
+        if (icon) {
+            icon.classList.remove('openIcon');
+            icon.classList.add('closedIcon');
+            closedForPick.push([icon, 'openIcon']);
+        }
+    }
+}
+
+function restoreDrawers() {
+    for (const [el, openClass] of closedForPick) {
+        el.classList.remove(openClass === 'openDrawer' ? 'closedDrawer' : 'closedIcon');
+        el.classList.add(openClass);
+    }
+    closedForPick = [];
+}
+
+function showPickerBar() {
+    hidePickerBar();
+    pickerBar = document.createElement('div');
+    pickerBar.className = 'ptr-pick-ui ptr-picker-bar';
+    pickerBar.innerHTML = `
+        <span>拾取模式：点击浮动面板选中（可连续选多个）</span>
+        <button class="menu_button" data-act="done">完成 (Esc)</button>`;
+    document.body.appendChild(pickerBar);
+    pickerBar.querySelector('[data-act="done"]').addEventListener('click', exitPicker);
+}
+
+function hidePickerBar() {
+    pickerBar?.remove();
+    pickerBar = null;
+}
 
 function showConfirmBar(el) {
     hideConfirmBar();
@@ -138,10 +182,10 @@ function showConfirmBar(el) {
     confirmBar.querySelector('[data-act="ok"]').addEventListener('click', () => {
         const target = pendingEl;
         hideConfirmBar();
-        exitPicker();
         wirePanel(target);
         renderExtras();
-        toastr.success(`子窗口 #${target.id} 已可拖动 / 调整大小，位置和尺寸会自动记忆`, 'Pretext 渲染增强');
+        // Stay in picker mode so several panels can be picked in one session.
+        toastr.success(`#${target.id} 已可拖动 / 调整大小`, 'Pretext 渲染增强');
     });
     confirmBar.querySelector('[data-act="cancel"]').addEventListener('click', hideConfirmBar);
 }
@@ -183,12 +227,13 @@ function onPickerKey(e) {
 function enterPicker() {
     if (pickerActive) return;
     pickerActive = true;
+    closeObscuringDrawers();
     document.addEventListener('mouseover', onPickerOver, true);
     document.addEventListener('click', onPickerClick, true);
     document.addEventListener('keydown', onPickerKey, true);
     document.body.classList.add('ptr-picker-active');
+    showPickerBar();
     renderExtras();
-    toastr.info('像 F12 选取元素一样点击一个浮动面板，确认后即可拖动；Esc 取消', 'Pretext 渲染增强');
 }
 
 function exitPicker() {
@@ -201,6 +246,8 @@ function exitPicker() {
     hoverEl?.classList.remove('ptr-pick-candidate');
     hoverEl = null;
     hideConfirmBar();
+    hidePickerBar();
+    restoreDrawers();
     renderExtras();
 }
 
