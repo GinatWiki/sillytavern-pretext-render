@@ -1,0 +1,75 @@
+/* Pretext 渲染增强 — extension styles.
+   Feature classes are toggled on the elements they affect; nothing here
+   activates unless a module opts in. */
+
+/* --- Settings panel --- */
+.pretext-render-settings .ptr-setting-row {
+    margin: 6px 0;
+}
+
+.pretext-render-settings .ptr-hint {
+    display: block;
+    opacity: 0.65;
+    font-size: 0.85em;
+    margin-top: 2px;
+}
+
+.pretext-render-settings input[type="number"].text_pole {
+    width: 70px;
+}
+
+/* --- Input autosize ---
+   Module drives height via inline style; disable the browser/ST native
+   self-sizing so the two don't fight. */
+#send_textarea.ptr-autosized {
+    field-sizing: fixed;
+    resize: none;
+    overflow-y: hidden;
+    transition: none; /* height must track keystrokes exactly */
+}
+
+#send_textarea.ptr-autosized.ptr-clamped {
+    overflow-y: auto;
+}
+
+/* --- Stream stabilizer ---
+   min-height is set inline per streaming tick; this class only marks the
+   element so themes can target it if desired. */
+.mes_text.ptr-streaming {
+    overflow-anchor: none; /* we manage scroll anchoring ourselves mid-stream */
+}
+
+/* --- Virtual scroll ---
+   Off-screen messages skip layout/paint via content-visibility.
+   contain-intrinsic-size is set inline from the pretext estimate / cached
+   real height so the scrollbar stays stable. */
+.mes.ptr-virtualized {
+    content-visibility: auto;
+    /* Keep interaction cheap while virtualized. */
+    pointer-events: none;
+}
+
+.mes.ptr-virtualized * {
+    pointer-events: none;
+}
+
+/* --- Moving panels --- */
+.ptr-movable {
+    position: fixed !important;
+    z-index: 1000;
+    margin: 0;
+}
+
+.ptr-movable.ptr-dragging {
+    user-select: none;
+    opacity: 0.92;
+}
+
+.ptr-drag-handle {
+    cursor: grab;
+    touch-action: none;
+}
+
+.ptr-drag-handle:active {
+    cursor: grabbing;
+}
