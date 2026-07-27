@@ -68,7 +68,7 @@
 - [ ] pretext 对 markdown 渲染后 HTML（标题/引用块等大号字体）的高度估算偏低保底，min-height 方案下可接受
 - [ ] macOS + system-ui 字体测量不准（pretext 平台 bug），可后续在设置里提示
 - [ ] 虚拟滚动对含图片消息用保守估算（3 行高），图片加载后浏览器 auto 记忆会纠正
-- [ ] moving-panels 待研究 ST 源码后实现（后台研究进行中）
+- [x] moving-panels 已实现（复用原生 dragElement + 拾取模式）
 - [ ] 考虑把 `streaming_fps` 与 ST 设置联动（暂独立）
 
 ## pretext 集成方式
