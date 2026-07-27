@@ -59,27 +59,65 @@
     z-index: 1000;
 }
 
+/* Floating grip tab — lives at body level, glued above the panel's top
+   edge by syncHandle(); never covers panel content. */
 .ptr-drag-handle {
-    cursor: grab;
-    touch-action: none;
-    width: 100%;
+    position: fixed;
+    z-index: 31000;
+    display: flex;
+    align-items: center;
+    gap: 3px;
     height: 16px;
+    padding: 0 4px;
+    border-radius: 6px 6px 0 0;
+    background: var(--SmartThemeBlurColor, rgba(20, 20, 30, 0.85));
+    border: 1px solid var(--SmartThemeBorderColor, #555);
+    border-bottom: none;
+    color: var(--SmartThemeBodyColor, #eee);
+    opacity: 0.55;
+    font-size: 10px;
     line-height: 16px;
-    text-align: center;
-    font-size: 11px;
-    letter-spacing: 4px;
-    opacity: 0.5;
-    background: var(--SmartThemeBlurColor, rgba(0, 0, 0, 0.25));
-    border-radius: 4px 4px 0 0;
     user-select: none;
 }
 
 .ptr-drag-handle:hover {
-    opacity: 0.9;
+    opacity: 1;
 }
 
-.ptr-drag-handle:active {
+.ptr-grip {
+    cursor: grab;
+    touch-action: none;
+    padding: 0 5px;
+    letter-spacing: 2px;
+}
+
+.ptr-grip:active {
     cursor: grabbing;
+}
+
+/* width/height follow toggles + dock button on the grip tab */
+.ptr-follow,
+.ptr-dock {
+    border: 1px solid var(--SmartThemeBorderColor, #666);
+    background: transparent;
+    color: inherit;
+    font-size: 9px;
+    line-height: 1;
+    padding: 2px 4px;
+    border-radius: 4px;
+    cursor: pointer;
+    opacity: 0.6;
+}
+
+.ptr-dock:hover {
+    opacity: 1;
+}
+
+.ptr-follow.active {
+    opacity: 1;
+    background: var(--SmartThemeQuoteColor, #4caf50);
+    border-color: var(--SmartThemeQuoteColor, #4caf50);
+    color: #fff;
 }
 
 /* Picker mode */

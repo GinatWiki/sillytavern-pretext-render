@@ -24,7 +24,13 @@
   - 注意：`../../../script.js` + `../../extensions.js` 是**内置扩展**（如 regex）的写法，第三方多一级
 - 事件：`STREAM_TOKEN_RECEIVED`、`GENERATION_STARTED/ENDED/STOPPED`、`MESSAGE_*`、
   `CHAT_CHANGED`（值是 `'chat_id_changed'`，勿硬编码）、`MORE_MESSAGES_LOADED`、
-  `CHARACTER_MESSAGE_RENDERED` / `USER_MESSAGE_RENDERED`
+  `CHARACTER_MESSAGE_RENDERED` / `USER_MESSAGE_RENDERED`、
+  `MOVABLE_PANELS_RESET`（原生重置按钮/preset 切换/关闭 MovingUI 时触发；
+  resetMovablePanels 会清所有 `[data-dragged]` 元素的内联 top/left/right/bottom/
+  height/width/margin 并置 `movingUIState={}`）
+- dragElement：`#<id>header` 上以 jQuery bubble 阶段绑 mousedown，仅当 target 带
+  `.drag-grabber` 才起动拖动；拖动中置 `data-dragged`（结束后为 'false'，属性仍在，
+  故 reset 仍会清到它）
 - DOM：`#chat > .mes[mesid] > .mes_block > .mes_text`；输入框 `#send_textarea`
 - 流式：`StreamingProcessor` 每帧直接覆盖 `.mes_text` innerHTML，默认 30fps（`power_user.streaming_fps`）
 - 输入框自适应：ST 原生为 CSS `field-sizing: content` + 兜底 `resetScrollHeight()`（读 scrollHeight）
@@ -57,11 +63,24 @@
   state 中任意 id —— 直接复用，位置/尺寸持久化与恢复自动获得
 - 原生只注册 7 个固定 id（#sheld/#left-nav-panel/#right-nav-panel/#WorldInfo/#floatingPrompt/
   #logprobsViewer/#cfgConfig），这就是"只能移动主聊天窗口"感受的来源
-- 增强方式：**拾取模式**——设置面板点"拾取子窗口"后点击任意浮动面板（fixed/absolute、≥120×80、
-  有 id，含其他扩展添加的），自动注入拖动手柄（`#<id>header.drag-grabber`）并调用 dragElement
+- 增强方式：**拾取模式**——设置面板点"拾取子窗口"后点击任意带 id 的元素（≥40×16，
+  含其他扩展添加的；静态定位元素由 floatPanel 记录原样式后转 fixed），确认条支持"父级↑"
+  向外扩选；进入拾取时自动收起所有抽屉防遮挡，退出时还原
+- 手柄：body 级悬浮 tab（`#<id>header`，内含 .drag-grabber 的 ⠿），syncHandle 贴在面板
+  上/下沿，不遮挡内容；resize:both 需要 overflow 非 visible，故句柄不能做面板子元素
+- 弹窗跟随：pointerdown 后 350ms + body 级 MutationObserver 扫描新出现的 fixed/absolute
+  弹窗，按到面板原锚点/当前位置的曼哈顿距离 ≤260px 判定归属，重锚定偏移量后随拖动平移；
+  手柄 [弹] 总开关（默认开）、[宽][高] 尺寸跟随，均持久化到 movingPanelsList
+- [归] 按钮 dockPanel：静态来源面板 unfloatPanel 恢复文档流 + 清 right/bottom/height；
+  原本就定位的面板清内联几何交还样式表；同时删除 movingUIState 记录，重载不还原
+- 原生重置兼容：监听 `MOVABLE_PANELS_RESET`（='movable_panels_reset'，events.js 定义、
+  script.js 转出口）→ onNativeReset 对所有悬浮面板 unfloatPanel（防止"重置后组件消失"），
+  置 needsRefloat；下次手柄 mousedown（**capture 阶段**，先于 dragElement 的 jQuery bubble
+  处理器）重新 floatPanel
 - 其他扩展延迟创建的面板：body 级 MutationObserver 监听，注册过的 id 一出现即接管
 - 已选面板清单存于扩展设置 `movingPanelsList`；移除面板可选择同时删除其位置记录
 - 拖动依赖 `power_user.movingUI === true`，首次拾取时自动打开 ST 的 MovingUI 开关
+- ST 的 EventEmitter（lib/eventemitter.js）**没有 .off()**，退订用 `removeListener`
 
 ### 气泡收缩：默认关闭
 - 主题差异大，含 `pre/table/img/iframe/video/hr` 的消息自动跳过
