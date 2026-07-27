@@ -59,25 +59,40 @@
     z-index: 1000;
 }
 
-/* Floating grip tab — lives at body level, glued above the panel's top
-   edge by syncHandle(); never covers panel content. */
+/* Grip tab — lives INSIDE the panel, glued to its top or bottom inner edge
+   (glueHandle() compensates for internal scroll). Compact left-aligned tab:
+   width hugs content and keeps the 20px right strip free, so it never covers
+   the bottom-right resize corner. `top` is set inline by glueHandle(). */
 .ptr-drag-handle {
-    position: fixed;
-    z-index: 31000;
-    display: flex;
+    position: absolute;
+    left: 0;
+    z-index: 1000;
+    display: inline-flex;
     align-items: center;
     gap: 3px;
     height: 16px;
+    width: fit-content;
+    max-width: calc(100% - 20px);
     padding: 0 4px;
-    border-radius: 6px 6px 0 0;
     background: var(--SmartThemeBlurColor, rgba(20, 20, 30, 0.85));
     border: 1px solid var(--SmartThemeBorderColor, #555);
-    border-bottom: none;
     color: var(--SmartThemeBodyColor, #eee);
     opacity: 0.55;
     font-size: 10px;
     line-height: 16px;
     user-select: none;
+}
+
+.ptr-drag-handle[data-side="top"] {
+    border-top: none;
+    border-left: none;
+    border-radius: 0 0 6px 0;
+}
+
+.ptr-drag-handle[data-side="bottom"] {
+    border-bottom: none;
+    border-left: none;
+    border-radius: 0 6px 0 0;
 }
 
 .ptr-drag-handle:hover {
@@ -95,9 +110,10 @@
     cursor: grabbing;
 }
 
-/* width/height follow toggles + dock button on the grip tab */
+/* width/height follow toggles + dock + side-switch buttons on the grip tab */
 .ptr-follow,
-.ptr-dock {
+.ptr-dock,
+.ptr-side {
     border: 1px solid var(--SmartThemeBorderColor, #666);
     background: transparent;
     color: inherit;
@@ -109,7 +125,8 @@
     opacity: 0.6;
 }
 
-.ptr-dock:hover {
+.ptr-dock:hover,
+.ptr-side:hover {
     opacity: 1;
 }
 

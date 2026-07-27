@@ -7,7 +7,8 @@
 // into power_user.movingUIState and ST restores them on load.
 //
 // On top of plain dragging this module provides:
-// - a floating grip tab that does NOT cover panel content
+// - an in-panel grip tab (top/bottom switchable, keeps clear of the
+//   bottom-right resize corner; moves with the panel by construction)
 // - attachment: popups opened from a moved panel re-anchor to it and follow
 //   its drags; optional width/height follow toggles per panel
 // - native-reset recovery: ST's MovingUI reset no longer makes floated
@@ -50,14 +51,14 @@ let settingsRoot = null; // jQuery container for the extras UI
 // id -> {
 //   origLeft, origTop,        // where the panel was when wired / last re-anchored
 //   lastLeft, lastTop,        // for per-mutation drag deltas
-//   followPopup, followW, followH, // mirrored into the registry for persistence
+//   followPopup, followW, followH, handleSide, // mirrored into the registry
 //   needsRefloat,             // set by native reset; next grip mousedown re-floats
 //   attachments: Map<el, { offX, offY }>,
-//   styleObserver, handle, onPointerDown,
+//   styleObserver, resizeObserver, handle, onPointerDown, onScroll,
 // }
 const panelStates = new Map();
 
-// settings.movingPanelsList: { [panelId]: { injectedHeader, followPopup, followW, followH } }
+// settings.movingPanelsList: { [panelId]: { injectedHeader, followPopup, followW, followH, handleSide } }
 function registry() {
     if (!settings.movingPanelsList) settings.movingPanelsList = {};
     return settings.movingPanelsList;
@@ -102,36 +103,66 @@ function parentCandidateOf(el) {
     return null;
 }
 
-// --- Drag handle (floating tab, doesn't cover content) ------------------------
+// --- Drag handle (in-panel tab, top/bottom switchable) ------------------------
 
-function createHandle(panel) {
+function createHandle(panel, side) {
     const handle = document.createElement('div');
     handle.id = `${panel.id}header`;
     // dragElement only starts a drag when the mousedown target itself carries
     // .drag-grabber — that's the grip span, not the follow buttons.
     handle.className = 'ptr-pick-ui ptr-drag-handle';
+    handle.dataset.side = side;
     handle.innerHTML = `
         <span class="drag-grabber ptr-grip" title="拖动移动面板">⠿</span>
         <button type="button" class="ptr-follow" data-dim="p" title="从该面板打开的弹窗自动跟随面板">弹</button>
         <button type="button" class="ptr-follow" data-dim="w" title="附着弹窗跟随面板宽度">宽</button>
         <button type="button" class="ptr-follow" data-dim="h" title="附着弹窗跟随面板高度">高</button>
-        <button type="button" class="ptr-dock" title="取消悬浮，恢复原位置（再次拖动手柄可重新悬浮）">归</button>`;
-    document.body.appendChild(handle);
+        <button type="button" class="ptr-dock" title="取消悬浮，恢复原位置（再次拖动手柄可重新悬浮）">归</button>
+        <button type="button" class="ptr-side" title="切换手柄位置：面板顶部 / 底部">⇅</button>`;
+    // In-panel: the handle moves with the panel by construction, and absolute
+    // positioning keeps it from disturbing the panel's own layout.
+    panel.prepend(handle);
+
+    // Keep panel-internal mousedown/click handlers (and our own resize-corner
+    // detection) from seeing handle interactions; same-element listeners such
+    // as dragElement's header binding still fire (stopPropagation ≠
+    // stopImmediatePropagation).
+    handle.addEventListener('mousedown', e => e.stopPropagation());
+    handle.addEventListener('click', e => e.stopPropagation());
 
     for (const btn of handle.querySelectorAll('.ptr-follow')) {
-        btn.addEventListener('mousedown', e => e.stopPropagation());
-        btn.addEventListener('click', e => {
-            e.stopPropagation();
-            toggleFollow(panel, btn.dataset.dim);
-        });
+        btn.addEventListener('click', () => toggleFollow(panel, btn.dataset.dim));
     }
-    const dockBtn = handle.querySelector('.ptr-dock');
-    dockBtn.addEventListener('mousedown', e => e.stopPropagation());
-    dockBtn.addEventListener('click', e => {
-        e.stopPropagation();
-        dockPanel(panel);
-    });
+    handle.querySelector('.ptr-dock').addEventListener('click', () => dockPanel(panel));
+    handle.querySelector('.ptr-side').addEventListener('click', () => toggleSide(panel));
     return handle;
+}
+
+/** Keep the in-panel handle glued to the chosen inner edge. Absolute children
+ *  scroll with panel content, so compensate by scrollTop; bottom mode also
+ *  needs re-gluing on resize (ResizeObserver in wirePanel covers that). */
+function glueHandle(panel) {
+    const state = panelStates.get(panel.id);
+    if (!state?.handle) return;
+    const h = state.handle.offsetHeight || 16;
+    if (state.handleSide === 'bottom') {
+        state.handle.style.top = `${panel.scrollTop + panel.clientHeight - h}px`;
+    } else {
+        state.handle.style.top = `${panel.scrollTop}px`;
+    }
+}
+
+function toggleSide(panel) {
+    const state = panelStates.get(panel.id);
+    if (!state?.handle) return;
+    state.handleSide = state.handleSide === 'top' ? 'bottom' : 'top';
+    state.handle.dataset.side = state.handleSide;
+    const entry = registry()[panel.id];
+    if (entry) {
+        entry.handleSide = state.handleSide;
+        saveSettings();
+    }
+    glueHandle(panel);
 }
 
 /** Undo floating: return the panel to its original (in-flow or stylesheet)
@@ -147,6 +178,7 @@ function dockPanel(panel) {
         panel.style.right = '';
         panel.style.bottom = '';
         panel.style.height = '';
+        ensureHandleAnchor(panel);
     } else {
         // Panel was already positioned before wiring: clearing inline geometry
         // hands it back to the stylesheet.
@@ -161,23 +193,8 @@ function dockPanel(panel) {
     const r = panel.getBoundingClientRect();
     state.origLeft = state.lastLeft = r.left;
     state.origTop = state.lastTop = r.top;
-    syncHandle(panel);
+    glueHandle(panel);
     toastr.info(`#${panel.id} 已恢复原位置；拖动 ⠿ 手柄可重新悬浮`, 'Pretext 渲染增强');
-}
-
-/** Keep the floating handle glued to the panel's top edge (or inside it). */
-function syncHandle(panel) {
-    const state = panelStates.get(panel.id);
-    if (!state?.handle) return;
-    const r = panel.getBoundingClientRect();
-    const h = state.handle.offsetHeight || 16;
-    let top;
-    if (r.top - h - 2 >= 0) top = r.top - h - 2;            // above the panel
-    else if (r.bottom + h + 2 <= window.innerHeight) top = r.bottom + 2; // below
-    else top = r.top + 2;                                    // inside, minimal overlap
-    state.handle.style.left = `${r.left + 8}px`;
-    state.handle.style.top = `${top}px`;
-    state.handle.style.visibility = panel.classList.contains('ptr-pick-pending') ? 'hidden' : '';
 }
 
 function refreshFollowButtons(panel) {
@@ -282,7 +299,7 @@ function maybeAttach(el) {
 }
 
 function onPanelStyleChanged(panel) {
-    syncHandle(panel);
+    glueHandle(panel);
     const state = panelStates.get(panel.id);
     if (!state) return;
     const r = panel.getBoundingClientRect();
@@ -344,14 +361,43 @@ function unfloatPanel(el) {
     // Keep the dataset entry: a later drag re-floats from it.
 }
 
+/** A static panel can't contain its absolute handle (the handle would anchor
+ *  to the nearest positioned ancestor, i.e. usually the viewport corner).
+ *  position:relative is visually identical to static for the panel itself but
+ *  keeps the handle glued inside. Records the pre-change inline value. */
+function ensureHandleAnchor(panel) {
+    if (getComputedStyle(panel).position !== 'static') return;
+    if (panel.dataset.ptrRelFix === undefined) {
+        panel.dataset.ptrRelFix = panel.style.position;
+    }
+    panel.style.position = 'relative';
+}
+
+/** After ST's native reset (or a dock) unfloated this panel, the next grip
+ *  mousedown re-floats it BEFORE dragElement's own handler reads offsets
+ *  (capture phase runs before dragElement's bubble-phase jQuery handler). */
+function bindRefloat(el, headerEl) {
+    headerEl?.addEventListener('mousedown', () => {
+        const st = panelStates.get(el.id);
+        if (!st?.needsRefloat) return;
+        st.needsRefloat = false;
+        floatPanel(el);
+        const r = el.getBoundingClientRect();
+        st.lastLeft = r.left;
+        st.lastTop = r.top;
+    }, true);
+}
+
 function wirePanel(el) {
     if (!el || el.dataset.ptrWired) return;
     ensureMovingUiOn();
 
+    const prev = registry()[el.id];
+
     // Reuse a native-style header if the panel already has one; otherwise
-    // float our own grip tab (never covers panel content).
+    // inject our own grip tab inside the panel.
     const hasNativeHeader = !!document.getElementById(`${el.id}header`);
-    const handle = hasNativeHeader ? null : createHandle(el);
+    const handle = hasNativeHeader ? null : createHandle(el, prev?.handleSide ?? 'top');
 
     el.classList.add('ptr-movable');
     const cs = getComputedStyle(el);
@@ -370,12 +416,12 @@ function wirePanel(el) {
     const saved = power_user.movingUIState?.[el.id];
     if (saved) $(el).css(saved);
 
-    const prev = registry()[el.id];
     const entry = {
         injectedHeader: !hasNativeHeader,
         followPopup: prev?.followPopup ?? true,
         followW: prev?.followW ?? false,
         followH: prev?.followH ?? false,
+        handleSide: prev?.handleSide ?? 'top',
     };
     registry()[el.id] = entry;
     saveSettings();
@@ -386,37 +432,39 @@ function wirePanel(el) {
         lastLeft: rect.left, lastTop: rect.top,
         followPopup: entry.followPopup,
         followW: entry.followW, followH: entry.followH,
+        handleSide: entry.handleSide,
         needsRefloat: false,
         attachments: new Map(),
         handle,
         styleObserver: null,
+        resizeObserver: null,
         onPointerDown: null,
+        onScroll: null,
     };
     state.styleObserver = new MutationObserver(() => onPanelStyleChanged(el));
     state.styleObserver.observe(el, { attributes: true, attributeFilter: ['style'] });
+    // Bottom-glued handle must track panel size (CSS resize doesn't mutate the
+    // style attribute, so a ResizeObserver is needed in addition).
+    state.resizeObserver = new ResizeObserver(() => {
+        glueHandle(el);
+        applySizeFollow(el, state);
+    });
+    state.resizeObserver.observe(el);
+    // Absolute handle scrolls with panel content — keep it glued.
+    state.onScroll = () => glueHandle(el);
+    el.addEventListener('scroll', state.onScroll, { passive: true });
     // Buttons inside the panel often open popups right after being clicked.
     state.onPointerDown = () => setTimeout(scanForPopups, 350);
     el.addEventListener('pointerdown', state.onPointerDown);
 
-    // After ST's native reset unfloated this panel, the next grip mousedown
-    // re-floats it BEFORE dragElement's own handler reads offsets (capture
-    // phase runs before dragElement's bubble-phase jQuery handler).
     const headerEl = handle ?? document.getElementById(`${el.id}header`);
-    headerEl?.addEventListener('mousedown', () => {
-        const st = panelStates.get(el.id);
-        if (!st?.needsRefloat) return;
-        st.needsRefloat = false;
-        floatPanel(el);
-        const r = el.getBoundingClientRect();
-        st.lastLeft = r.left;
-        st.lastTop = r.top;
-    }, true);
+    bindRefloat(el, headerEl);
 
     panelStates.set(el.id, state);
 
     el.dataset.ptrWired = '1';
     refreshFollowButtons(el);
-    syncHandle(el);
+    glueHandle(el);
 }
 
 function unwirePanel(el, { keepState = true, keepRegistry = false } = {}) {
@@ -425,6 +473,8 @@ function unwirePanel(el, { keepState = true, keepRegistry = false } = {}) {
     const state = panelStates.get(el.id);
 
     state?.styleObserver?.disconnect();
+    state?.resizeObserver?.disconnect();
+    if (state?.onScroll) el.removeEventListener('scroll', state.onScroll);
     if (state?.onPointerDown) el.removeEventListener('pointerdown', state.onPointerDown);
     if (entry?.injectedHeader) {
         document.getElementById(`${el.id}header`)?.remove();
@@ -440,6 +490,10 @@ function unwirePanel(el, { keepState = true, keepRegistry = false } = {}) {
     if (el.dataset.ptrOrigPos !== undefined) {
         unfloatPanel(el);
         delete el.dataset.ptrOrigPos;
+    }
+    if (el.dataset.ptrRelFix !== undefined) {
+        el.style.position = el.dataset.ptrRelFix;
+        delete el.dataset.ptrRelFix;
     }
     delete el.dataset.ptrWired;
     if (!keepRegistry) delete registry()[el.id];
@@ -529,6 +583,10 @@ function showConfirmBar(el) {
     confirmBar.querySelector('[data-act="ok"]').addEventListener('click', () => {
         const target = pendingEl;
         hideConfirmBar();
+        if (target.dataset.ptrWired) {
+            toastr.info(`#${target.id} 已经在可移动列表中`, 'Pretext 渲染增强');
+            return;
+        }
         wirePanel(target);
         renderExtras();
         // Stay in picker mode so several panels can be picked in one session.
@@ -615,6 +673,17 @@ function scanAdded(nodes) {
             maybeAttach(inner);
         }
     }
+    // Owning extensions sometimes re-render a wired panel's innerHTML, which
+    // wipes our injected handle. Recreate it in place.
+    for (const [id, state] of panelStates) {
+        if (!state.handle || state.handle.isConnected) continue;
+        const el = document.getElementById(id);
+        if (!el) continue;
+        state.handle = createHandle(el, state.handleSide);
+        bindRefloat(el, state.handle);
+        refreshFollowButtons(el);
+        glueHandle(el);
+    }
 }
 
 /** Re-scan the whole body for popups (called after clicks inside panels). */
@@ -637,21 +706,26 @@ function startObserver() {
 // they collapse or fly off-screen ("组件消失"). Restore their in-flow layout and
 // re-float on the next drag instead.
 function onNativeReset() {
+    let recovered = 0;
     for (const [id, state] of panelStates) {
         const el = document.getElementById(id);
         if (!el) continue;
         state.attachments.clear(); // anchors are stale after a reset
         if (el.dataset.ptrOrigPos !== undefined) {
             unfloatPanel(el);
+            ensureHandleAnchor(el);
             state.needsRefloat = true;
+            recovered++;
         }
         // Re-anchor to wherever the panel ended up.
         const r = el.getBoundingClientRect();
         state.origLeft = state.lastLeft = r.left;
         state.origTop = state.lastTop = r.top;
-        syncHandle(el);
+        glueHandle(el);
     }
-    toastr.info('面板位置已重置；再次拖动手柄将重新悬浮定位', 'Pretext 渲染增强');
+    if (recovered) {
+        toastr.info('面板位置已重置；再次拖动手柄将重新悬浮定位', 'Pretext 渲染增强');
+    }
 }
 
 // --- Settings extras UI -------------------------------------------------------
@@ -673,7 +747,7 @@ function renderExtras() {
             <div class="menu_button" id="ptr-picker-toggle">
                 ${pickerActive ? '取消拾取 (Esc)' : '拾取子窗口…'}
             </div>
-            <small class="ptr-hint">用法：① 点上方按钮进入拾取模式 ② 像 F12 选元素一样点击目标（任何有 id 的元素都行，含其他扩展添加的；可用"父级↑"向外扩大选择）③ 确认后拖 ⠿ 手柄移动、拖右下角调宽高。从面板打开的弹窗会自动跟随；手柄按钮：[弹] 弹窗跟随开关，[宽][高] 弹窗宽高跟随面板，[归] 取消悬浮恢复原位（再拖手柄重新悬浮）</small>
+            <small class="ptr-hint">用法：① 点上方按钮进入拾取模式 ② 像 F12 选元素一样点击目标（任何有 id 的元素都行，含其他扩展添加的；可用"父级↑"向外扩大选择）③ 确认后拖面板内 ⠿ 手柄移动、拖右下角调宽高。从面板打开的弹窗会自动跟随；手柄按钮：[弹] 弹窗跟随开关，[宽][高] 弹窗宽高跟随面板，[归] 取消悬浮恢复原位，[⇅] 切换手柄在面板顶部/底部</small>
         </div>
         <div class="ptr-panel-list">${list}</div>
     `);

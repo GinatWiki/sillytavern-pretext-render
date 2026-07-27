@@ -66,8 +66,13 @@
 - 增强方式：**拾取模式**——设置面板点"拾取子窗口"后点击任意带 id 的元素（≥40×16，
   含其他扩展添加的；静态定位元素由 floatPanel 记录原样式后转 fixed），确认条支持"父级↑"
   向外扩选；进入拾取时自动收起所有抽屉防遮挡，退出时还原
-- 手柄：body 级悬浮 tab（`#<id>header`，内含 .drag-grabber 的 ⠿），syncHandle 贴在面板
-  上/下沿，不遮挡内容；resize:both 需要 overflow 非 visible，故句柄不能做面板子元素
+- 手柄：**面板内**角标（`#<id>header`，prepend 进面板、absolute 定位、宽度贴合内容、
+  右侧留 20px 避开 resize 角），随面板移动天然跟随，无需同步代码；glueHandle 用
+  scrollTop/clientHeight 补偿面板内部滚动（ResizeObserver 覆盖 CSS resize——它不触发
+  style 属性变更）；[⇅] 按钮切换吸附顶部/底部并持久化 handleSide；面板被 unfloat 回
+  static 时用 position:relative（视觉等价 static）保住手柄的包含块；所属扩展用
+  innerHTML 重绘面板会抹掉手柄，scanAdded 末尾有修复通道按 state.handle.isConnected
+  检测并重建
 - 弹窗跟随：pointerdown 后 350ms + body 级 MutationObserver 扫描新出现的 fixed/absolute
   弹窗，按到面板原锚点/当前位置的曼哈顿距离 ≤260px 判定归属，重锚定偏移量后随拖动平移；
   手柄 [弹] 总开关（默认开）、[宽][高] 尺寸跟随，均持久化到 movingPanelsList
