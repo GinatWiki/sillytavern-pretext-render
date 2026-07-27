@@ -10,9 +10,11 @@ import * as bubbleShrinkwrap from './src/bubble-shrinkwrap.js';
 import * as virtualScroll from './src/virtual-scroll.js';
 import * as movingPanels from './src/moving-panels.js';
 
+// Keys MUST match the feature keys in src/settings.js (settings[f.key],
+// modules[f.key]); values are the module namespaces.
 const MODULES = {
     inputAutosize,
-    streamStabilize,
+    streamStabilize: streamStabilizer,
     bubbleShrinkwrap,
     virtualScroll,
     movingPanels,
