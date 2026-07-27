@@ -2,8 +2,8 @@
 // Stored under extension_settings['pretext-render']; every toggle maps to a
 // module enable/disable plus an <html> class so style.css can react too.
 
-import { saveSettingsDebounced } from '../../../script.js';
-import { extension_settings } from '../../extensions.js';
+import { saveSettingsDebounced } from '../../../../script.js';
+import { extension_settings } from '../../../extensions.js';
 
 export const EXT_KEY = 'pretext-render';
 

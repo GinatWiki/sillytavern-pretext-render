@@ -10,8 +10,8 @@
 // reflow can no longer shrink it. Scroll-to-bottom is also coalesced into the
 // same frame instead of firing per token.
 
-import { eventSource, event_types } from '../../../script.js';
-import { getContext } from '../../extensions.js';
+import { eventSource, event_types } from '../../../../script.js';
+import { getContext } from '../../../extensions.js';
 import { layout } from '../lib/pretext.js';
 import { getTextMetrics, prepareCached, rafThrottle } from './utils.js';
 
