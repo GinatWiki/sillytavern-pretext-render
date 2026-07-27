@@ -18,6 +18,18 @@ const NATIVE_IDS = new Set([
     'WorldInfo', 'floatingPrompt', 'logprobsViewer', 'cfgConfig',
 ]);
 
+// Core ST layout elements that must never be floated.
+const BLOCKED_IDS = new Set([
+    ...NATIVE_IDS,
+    'chat', 'top-nav', 'top-settings-holder', 'form_sheld', 'send_form',
+]);
+
+// Tags we treat as "panel containers" when walking up from the click target.
+const CONTAINER_TAGS = new Set([
+    'DIV', 'SECTION', 'ASIDE', 'NAV', 'FORM', 'HEADER', 'FOOTER', 'MAIN',
+    'FIELDSET', 'TABLE', 'UL',
+]);
+
 let settings = null;
 let enabled = false;
 let pickerActive = false;
@@ -32,16 +44,41 @@ function registry() {
 
 // --- Panel wiring -----------------------------------------------------------
 
-function isCandidate(el) {
+/** Basic pickability: has an id, visible, sane size, not ST chrome/our UI. */
+function passesBasic(el) {
     if (!el || !el.id || !(el instanceof HTMLElement)) return false;
-    if (NATIVE_IDS.has(el.id)) return false;
-    if (el.closest('.pretext-render-settings')) return false;
+    if (BLOCKED_IDS.has(el.id)) return false;
+    if (el.closest('.pretext-render-settings, .ptr-pick-ui')) return false;
     if (el.classList.contains('ptr-drag-handle')) return false;
     const cs = getComputedStyle(el);
-    if (cs.position !== 'fixed' && cs.position !== 'absolute') return false;
     if (cs.display === 'none' || cs.visibility === 'hidden') return false;
     const r = el.getBoundingClientRect();
-    return r.width >= 120 && r.height >= 80;
+    if (r.width < 40 || r.height < 16) return false;
+    // Skip near-fullscreen roots — those are page scaffolding, not panels.
+    if (r.width * r.height > window.innerWidth * window.innerHeight * 0.95) return false;
+    return true;
+}
+
+/**
+ * F12-style: walk up from the hover target; prefer the deepest CONTAINER
+ * with an id, remember the first id-bearing element of any tag as fallback.
+ */
+function findCandidate(target) {
+    let fallback = null;
+    for (let el = target; el && el !== document.body && el !== document.documentElement; el = el.parentElement) {
+        if (!passesBasic(el)) continue;
+        if (!fallback) fallback = el;
+        if (CONTAINER_TAGS.has(el.tagName)) return el;
+    }
+    return fallback;
+}
+
+/** Nearest pickable ancestor (for the confirm bar's "parent" button). */
+function parentCandidateOf(el) {
+    for (let p = el.parentElement; p && p !== document.body && p !== document.documentElement; p = p.parentElement) {
+        if (passesBasic(p)) return p;
+    }
+    return null;
 }
 
 function ensureMovingUiOn() {
@@ -73,8 +110,26 @@ function wirePanel(el) {
     const injectedHeader = ensureDragHandle(el);
     el.classList.add('ptr-movable');
 
-    // CSS resize needs non-visible overflow.
     const cs = getComputedStyle(el);
+
+    // Static/relative/sticky elements can't be dragged by left/top — float
+    // them in place. Original inline styles are restored on unwire.
+    if (cs.position !== 'fixed' && cs.position !== 'absolute') {
+        const rect = el.getBoundingClientRect();
+        el.dataset.ptrOrigPos = JSON.stringify({
+            position: el.style.position, left: el.style.left, top: el.style.top,
+            width: el.style.width, margin: el.style.margin,
+        });
+        Object.assign(el.style, {
+            position: 'fixed',
+            left: `${rect.left}px`,
+            top: `${rect.top}px`,
+            width: `${rect.width}px`,
+            margin: '0',
+        });
+    }
+
+    // CSS resize needs non-visible overflow.
     if (cs.overflow === 'visible') {
         el.dataset.ptrOverflowFix = el.style.overflow ?? '';
         el.style.overflow = 'auto';
@@ -106,6 +161,13 @@ function unwirePanel(el, { keepState = true, keepRegistry = false } = {}) {
     if (el.dataset.ptrOverflowFix !== undefined) {
         el.style.overflow = el.dataset.ptrOverflowFix;
         delete el.dataset.ptrOverflowFix;
+    }
+    if (el.dataset.ptrOrigPos !== undefined) {
+        try {
+            const orig = JSON.parse(el.dataset.ptrOrigPos);
+            Object.assign(el.style, orig);
+        } catch { /* leave styles as-is */ }
+        delete el.dataset.ptrOrigPos;
     }
     delete el.dataset.ptrWired;
     if (!keepRegistry) delete registry()[el.id];
@@ -175,10 +237,23 @@ function showConfirmBar(el) {
     confirmBar = document.createElement('div');
     confirmBar.className = 'ptr-pick-ui ptr-confirm-bar';
     confirmBar.innerHTML = `
-        <span>已选中 <b>#${el.id}</b>，使其可自由移动？</span>
+        <span data-role="label">已选中 <b>#${el.id}</b></span>
+        <button class="menu_button" data-act="parent" title="选择更外层的父元素">父级 ↑</button>
         <button class="menu_button" data-act="ok">确认</button>
         <button class="menu_button" data-act="cancel">取消</button>`;
     document.body.appendChild(confirmBar);
+
+    confirmBar.querySelector('[data-act="parent"]').addEventListener('click', () => {
+        const parent = parentCandidateOf(pendingEl);
+        if (!parent) {
+            toastr.info('没有更外层可拾取的父元素了', 'Pretext 渲染增强');
+            return;
+        }
+        pendingEl.classList.remove('ptr-pick-pending');
+        pendingEl = parent;
+        pendingEl.classList.add('ptr-pick-pending');
+        confirmBar.querySelector('[data-role="label"]').innerHTML = `已选中 <b>#${parent.id}</b>`;
+    });
     confirmBar.querySelector('[data-act="ok"]').addEventListener('click', () => {
         const target = pendingEl;
         hideConfirmBar();
@@ -199,10 +274,10 @@ function hideConfirmBar() {
 
 function onPickerOver(e) {
     if (e.target.closest?.('.ptr-pick-ui')) return; // don't pick our own UI
-    const el = e.target.closest?.('div,section,aside,form');
+    const el = e.target instanceof Element ? findCandidate(e.target) : null;
     if (hoverEl === el) return;
     hoverEl?.classList.remove('ptr-pick-candidate');
-    hoverEl = isCandidate(el) ? el : null;
+    hoverEl = el;
     hoverEl?.classList.add('ptr-pick-candidate');
 }
 
@@ -212,7 +287,7 @@ function onPickerClick(e) {
     e.stopPropagation();
     const el = hoverEl;
     if (!el) {
-        toastr.warning('该元素不可拾取：需要是有 id 的浮动面板（fixed/absolute 定位）', 'Pretext 渲染增强');
+        toastr.warning('该元素不可拾取：需要有 id（页面根容器除外）', 'Pretext 渲染增强');
         return;
     }
     hoverEl.classList.remove('ptr-pick-candidate');
@@ -292,7 +367,7 @@ function renderExtras() {
             <div class="menu_button" id="ptr-picker-toggle">
                 ${pickerActive ? '取消拾取 (Esc)' : '拾取子窗口…'}
             </div>
-            <small class="ptr-hint">用法：① 点上方按钮进入拾取模式 ② 像 F12 选元素一样点击页面上的浮动面板（含其他扩展添加的）③ 确认后即可拖动 / 拖右下角调宽高，位置尺寸自动记忆</small>
+            <small class="ptr-hint">用法：① 点上方按钮进入拾取模式 ② 像 F12 选元素一样点击目标（任何有 id 的元素都行，含其他扩展添加的；可用"父级↑"向外扩大选择）③ 确认后即可拖动 / 拖右下角调宽高，位置尺寸自动记忆</small>
         </div>
         <div class="ptr-panel-list">${list}</div>
     `);
