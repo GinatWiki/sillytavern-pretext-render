@@ -74,8 +74,11 @@
     justify-content: space-evenly;
     height: 16px;
     padding: 0;
-    background: var(--SmartThemeBlurColor, rgba(20, 20, 30, 0.85));
-    border: 1px solid var(--SmartThemeBorderColor, #555);
+    /* Same chrome recipe as ST's own top bar: theme tint + blur. */
+    background-color: var(--SmartThemeBlurTintColor, rgba(23, 23, 23, 0.9));
+    backdrop-filter: blur(var(--SmartThemeBlurStrength, 0px));
+    -webkit-backdrop-filter: blur(var(--SmartThemeBlurStrength, 0px));
+    border: 1px solid var(--SmartThemeBorderColor, rgba(0, 0, 0, 0.5));
     color: var(--SmartThemeBodyColor, #eee);
     opacity: 0.55;
     font-size: 10px;
@@ -181,7 +184,7 @@ body.ptr-picker-active {
     gap: 10px;
     padding: 8px 14px;
     border-radius: 8px;
-    background: var(--SmartThemeBlurColor, rgba(20, 20, 30, 0.95));
+    background: var(--SmartThemeBlurTintColor, rgba(23, 23, 23, 0.95));
     color: var(--SmartThemeBodyColor, #eee);
     border: 1px solid var(--SmartThemeBorderColor, #555);
     box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5);

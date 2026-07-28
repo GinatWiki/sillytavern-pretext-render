@@ -68,7 +68,7 @@ let settingsRoot = null; // jQuery container for the extras UI
 //   followPopup, followW, followH, handleSide, // mirrored into the registry
 //   needsRefloat,             // set by native reset; next grip mousedown re-floats
 //   attachments: Map<el, { offX, offY }>,
-//   styleObserver, resizeObserver, handle, onPointerDown, onScroll,
+//   styleObserver, resizeObserver, handle, onPointerDown, onPointerUp, onScroll,
 // }
 const panelStates = new Map();
 
@@ -130,7 +130,6 @@ function createHandle(panel, side) {
         <span class="drag-grabber ptr-grip" title="拖动移动面板">⠿</span>
         <button type="button" class="ptr-follow" data-dim="p" title="从该面板打开的弹窗自动跟随面板">弹</button>
         <button type="button" class="ptr-follow" data-dim="w" title="附着弹窗跟随面板宽度">宽</button>
-        <button type="button" class="ptr-follow" data-dim="h" title="附着弹窗跟随面板高度">高</button>
         <button type="button" class="ptr-dock" title="取消悬浮，恢复原位置（再次拖动手柄可重新悬浮）">归</button>
         <button type="button" class="ptr-side" title="切换手柄位置：面板顶部 / 底部">⇅</button>`;
     // In-panel: the handle moves with the panel by construction, and absolute
@@ -341,26 +340,21 @@ function maybeAttach(el) {
     if (!isPopupLike(el)) return;
 
     const popRect = el.getBoundingClientRect();
-    const interactive = interactiveOwner();
-    let owner, offX, offY;
-    if (interactive) {
-        // Opened right after a click inside the panel: keep it where it
-        // appeared (offset relative to the panel's CURRENT position) and
-        // just link it for future drags.
-        owner = interactive;
-        offX = popRect.left - interactive.cur.left;
-        offY = popRect.top - interactive.cur.top;
-    } else {
-        // Discovered passively (e.g. it opened at the panel's ORIGINAL spot
-        // while the panel is elsewhere): re-anchor it onto the panel.
-        owner = findOwnerPanel(popRect);
-        if (!owner) return;
-        offX = popRect.left - owner.state.origLeft;
-        offY = popRect.top - owner.state.origTop;
-    }
-    if (owner.state.followPopup === false) return;
+    // Interaction decides WHICH panel owns the popup; proximity is fallback.
+    const owner = interactiveOwner() ?? findOwnerPanel(popRect);
+    if (!owner || owner.state.followPopup === false) return;
 
     const { panel, state, cur } = owner;
+    // Decide which anchor the popup was positioned against by which is nearer:
+    // near the ORIGINAL spot → the extension used stale coordinates, so
+    // re-anchor it onto the panel's current position; near the CURRENT spot →
+    // live coordinates, keep it where it appeared and just link it.
+    const dCur = Math.abs(popRect.left - cur.left) + Math.abs(popRect.top - cur.top);
+    const dOrig = Math.abs(popRect.left - state.origLeft) + Math.abs(popRect.top - state.origTop);
+    const fromOrig = dOrig < dCur;
+    const offX = popRect.left - (fromOrig ? state.origLeft : cur.left);
+    const offY = popRect.top - (fromOrig ? state.origTop : cur.top);
+
     // Normalize to left/top so we can translate it during drags.
     el.style.left = `${cur.left + offX}px`;
     el.style.top = `${cur.top + offY}px`;
@@ -517,6 +511,7 @@ function wirePanel(el) {
         styleObserver: null,
         resizeObserver: null,
         onPointerDown: null,
+        onPointerUp: null,
         onScroll: null,
     };
     state.styleObserver = new MutationObserver(() => onPanelStyleChanged(el));
@@ -541,6 +536,10 @@ function wirePanel(el) {
         setTimeout(scanForPopups, 1200);
     };
     el.addEventListener('pointerdown', state.onPointerDown);
+    // After any interaction settles (resize drag end etc.), re-assert the
+    // size follow so attached popups can't be left behind.
+    state.onPointerUp = () => applySizeFollow(el, state);
+    el.addEventListener('pointerup', state.onPointerUp);
 
     const headerEl = handle ?? document.getElementById(`${el.id}header`);
     bindRefloat(el, headerEl);
@@ -561,6 +560,7 @@ function unwirePanel(el, { keepState = true, keepRegistry = false } = {}) {
     state?.resizeObserver?.disconnect();
     if (state?.onScroll) el.removeEventListener('scroll', state.onScroll);
     if (state?.onPointerDown) el.removeEventListener('pointerdown', state.onPointerDown);
+    if (state?.onPointerUp) el.removeEventListener('pointerup', state.onPointerUp);
     if (entry?.injectedHeader) {
         document.getElementById(`${el.id}header`)?.remove();
         entry.injectedHeader = false;
@@ -843,7 +843,7 @@ function renderExtras() {
             <div class="menu_button" id="ptr-picker-toggle">
                 ${pickerActive ? '取消拾取 (Esc)' : '拾取子窗口…'}
             </div>
-            <small class="ptr-hint">用法：① 点上方按钮进入拾取模式 ② 像 F12 选元素一样点击目标（任何有 id 的元素都行，含其他扩展添加的；可用"父级↑"向外扩大选择）③ 确认后拖面板内 ⠿ 手柄移动、拖右下角调宽高。从面板打开的弹窗会自动跟随；手柄按钮：[弹] 弹窗跟随开关，[宽][高] 弹窗宽高跟随面板，[归] 取消悬浮恢复原位，[⇅] 切换手柄在面板顶部/底部</small>
+            <small class="ptr-hint">用法：① 点上方按钮进入拾取模式 ② 像 F12 选元素一样点击目标（任何有 id 的元素都行，含其他扩展添加的；可用"父级↑"向外扩大选择）③ 确认后拖面板内 ⠿ 手柄移动、拖右下角调宽高。从面板打开的弹窗会自动跟随；手柄按钮：[弹] 弹窗跟随开关，[宽] 弹窗宽度跟随面板，[归] 取消悬浮恢复原位，[⇅] 切换手柄在面板顶部/底部</small>
         </div>
         <div class="ptr-panel-list">${list}</div>
     `);

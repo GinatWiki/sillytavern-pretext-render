@@ -77,10 +77,18 @@
 - **坑：ST 原生 `.drag-grabber` 是 `position:absolute; right:0; z-index:2000`**——
   直接用作手柄 grip 会覆盖在按钮上吞掉点击（"按钮没反应"的真因），需在我们的手柄内
   降级为普通 flex item（position:static）
-- 弹窗归属判定：**优先交互导向**——面板内 pointerdown 后 1500ms 内出现的弹窗直接归该
-  面板（偏移按面板当前位置算，弹窗留在原地仅建立跟随链接）；无交互时才退回距离启发式
-  （重锚定到面板当前位置）；观察器同时监听 class/style 属性变化，捕获"预建 DOM、切
-  class 显示"型弹窗；排除面板内部元素、面板的祖先、#toast-container、.zoomed_avatar
+- 弹窗归属判定：**交互导向决定归哪个面板**（面板内 pointerdown 后 1500ms 窗口期），
+  **锚点选择决定放在哪**：弹窗出现位置离"面板原位"更近 → 扩展用了过期坐标，重锚定到
+  面板当前位置；离"面板当前位"更近 → 弹窗用实时坐标，留在原地仅建立跟随链接；无交互
+  时退回距离启发式；观察器同时监听 class/style 属性变化，捕获"预建 DOM、切 class 显
+  示"型弹窗；排除面板内部元素、面板的祖先、#toast-container、.zoomed_avatar；
+  pointerup 收尾会重assert尺寸跟随
+- **主题变量只有这些**：SmartTheme{Body,Em,Quote,Border,Shadow,BlurTint,ChatTint,
+  FastUIBG,UserMes/BotMes BlurTint,BlurStrength,Checkbox*,Underline}Color——
+  **不存在 SmartThemeBlurColor**（早期版本误用导致栏位始终 fallback 深色、不随主题）；
+  ST 顶栏配方 = `background: var(--SmartThemeBlurTintColor)` +
+  `backdrop-filter: blur(var(--SmartThemeBlurStrength))`
+- [高] 按钮已移除（无适用场景）；state.followH 逻辑保留但不再有入口
 - 弹窗跟随：pointerdown 后 350ms + body 级 MutationObserver 扫描新出现的 fixed/absolute
   弹窗，按到面板原锚点/当前位置的曼哈顿距离 ≤260px 判定归属，重锚定偏移量后随拖动平移；
   手柄 [弹] 总开关（默认开）、[宽][高] 尺寸跟随，均持久化到 movingPanelsList
