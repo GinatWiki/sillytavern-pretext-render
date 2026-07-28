@@ -77,12 +77,18 @@
 - **坑：ST 原生 `.drag-grabber` 是 `position:absolute; right:0; z-index:2000`**——
   直接用作手柄 grip 会覆盖在按钮上吞掉点击（"按钮没反应"的真因），需在我们的手柄内
   降级为普通 flex item（position:static）
+- **坑：拖动只在 e.target 带 .drag-grabber 时启动**——手柄条 space-evenly 的按钮间隙是
+  死区，底部条右端外 18px 让位带又落入 ST 面板级 mousedown 的右下角 16px 缩放判定，
+  用户瞄条右端一偏就"拖动变放大"。修复：手柄条本身也带 .drag-grabber（整条可拖，
+  按钮 e.target 不带该类不受影响），并用 `.ptr-drag-handle.drag-grabber`（0-2-0，置于
+  [data-side] 规则之前）钉住原生类的 absolute/right/margin/z-index/opacity 副作用
 - 弹窗归属判定：**交互导向决定归哪个面板**（面板内 pointerdown 后 1500ms 窗口期），
   **锚点选择决定放在哪**：弹窗出现位置离"面板原位"更近 → 扩展用了过期坐标，重锚定到
   面板当前位置；离"面板当前位"更近 → 弹窗用实时坐标，留在原地仅建立跟随链接；无交互
   时退回距离启发式；观察器同时监听 class/style 属性变化，捕获"预建 DOM、切 class 显
-  示"型弹窗；排除面板内部元素、面板的祖先、#toast-container、.zoomed_avatar；
-  pointerup 收尾会重assert尺寸跟随
+  示"型弹窗；排除面板内部元素、面板的祖先、BLOCKED_IDS（原生面板/页骨架）、
+  #toast-container、#top-bar（ST 顶栏，曾因交互窗口期误判为弹窗被拖走）、
+  .zoomed_avatar；pointerup 收尾会重assert尺寸跟随
 - **主题变量只有这些**：SmartTheme{Body,Em,Quote,Border,Shadow,BlurTint,ChatTint,
   FastUIBG,UserMes/BotMes BlurTint,BlurStrength,Checkbox*,Underline}Color——
   **不存在 SmartThemeBlurColor**（早期版本误用导致栏位始终 fallback 深色、不随主题）；
@@ -90,16 +96,22 @@
   `backdrop-filter: blur(var(--SmartThemeBlurStrength))`
 - [高] 按钮已移除（无适用场景）；state.followH 逻辑保留但不再有入口
 - 弹窗跟随：pointerdown 后 350ms + body 级 MutationObserver 扫描新出现的 fixed/absolute
-  弹窗，按到面板原锚点/当前位置的曼哈顿距离 ≤260px 判定归属；默认紧贴面板（左对齐 +
-  上/下方贴合，越界自动翻面），随后随拖动平移；手柄 [弹] 总开关（默认开）、[宽] 宽度
-  跟随、[左右] 左对齐开关（默认开）、[上下] 上方/下方切换（默认下方），均持久化到
-  movingPanelsList
+  弹窗，按到面板原锚点/当前位置的曼哈顿距离 ≤260px 判定归属；默认紧贴面板（对齐与
+  方位由手柄三态开关决定，越界自动翻面），随后随拖动平移；手柄 [弹] 总开关（默认开）、
+  [宽] 宽度跟随、[左右] 左对齐→右对齐→关闭循环（默认左对齐）、[上下] 下方→上方→关闭
+  循环（默认下方），均持久化到 movingPanelsList
+- 紧贴保持：每个附着记录带 snapX/snapY 标记（= 对齐/贴合状态，null = 用户手动摆放）。
+  弹窗尺寸变化（内容增长、CSS 缩放）时 top 贴合的弹窗向上生长、right 对齐的向左生长，
+  底边/右边始终紧贴面板（修复"弹窗高度不同导致留空"）；面板自身尺寸变化时下方贴合的
+  弹窗随面板底边、右对齐的随面板右边移动（keepSnappedFlush，挂在面板 ResizeObserver
+  上——CSS 缩放不改 style 属性，onPanelStyleChanged 不会触发）；用户拖动弹窗则清除
+  snapX/snapY，转为纯偏移跟随
 - 弹窗自由调节与记忆：附着弹窗规范化 position:fixed + resize:both；style/class 属性
   观察器 + 每弹窗 ResizeObserver 把用户拖动/缩放"收养"为新偏移与尺寸（markSelfWrite
   60ms 窗口防止误收养我们自己的写入；收养路径 saveSettings 走 800ms 防抖）；有 id 的
-  弹窗持久化到 movingPanelsList[panelId].popups[popupId] 跨会话记忆；弹窗隐藏
-  （display:none）时不收养，重新显示时按记忆位置回贴（wasHidden），防止扩展重开弹窗
-  的出生坐标覆盖记忆
+  弹窗持久化到 movingPanelsList[panelId].popups[popupId]（含 snapX/snapY）跨会话记忆；
+  弹窗隐藏（display:none）时不收养，重新显示时按记忆位置回贴（wasHidden），防止扩展
+  重开弹窗的出生坐标覆盖记忆
 - [归] 按钮 dockPanel：静态来源面板 unfloatPanel 恢复文档流 + 清 right/bottom/height；
   原本就定位的面板清内联几何交还样式表；同时删除 movingUIState 记录，重载不还原
 - 原生重置兼容：监听 `MOVABLE_PANELS_RESET`（='movable_panels_reset'，events.js 定义、

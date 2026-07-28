@@ -9,8 +9,9 @@
 // On top of plain dragging this module provides:
 // - an in-panel grip tab (top/bottom switchable, keeps clear of the
 //   bottom-right resize corner; moves with the panel by construction)
-// - attachment: popups opened from a moved panel snap flush to it (left-aligned,
-//   above/below — per-panel 左右/上下 toggles) and follow its drags; user
+// - attachment: popups opened from a moved panel snap flush to it (per-panel
+//   左右 toggle: left/right/off, 上下 toggle: top/bottom/off) and follow its
+//   drags; snapped popups stay flush across content-height changes; user
 //   moves/resizes of an attached popup are adopted and remembered (per popup
 //   id, across sessions); optional width follow per panel
 // - native-reset recovery: ST's MovingUI reset no longer makes floated
@@ -53,7 +54,7 @@ const HANDLE_H = 16;
 const INTERACT_WINDOW = 1500;
 
 // Global floating UI that must never be treated as a panel's popup.
-const NEVER_ATTACH_IDS = new Set(['toast-container']);
+const NEVER_ATTACH_IDS = new Set(['toast-container', 'top-bar']);
 
 let lastInteraction = { id: null, t: 0 };
 
@@ -74,16 +75,18 @@ let settingsRoot = null; // jQuery container for the extras UI
 // id -> {
 //   origLeft, origTop,        // where the panel was when wired / last re-anchored
 //   lastLeft, lastTop,        // for per-mutation drag deltas
-//   followPopup, followW, followH, handleSide, popupAlign, popupSide,
+//   followPopup, followW, followH, handleSide,
+//   popupAlign, popupSide,  // 'left'|'right'|'off', 'top'|'bottom'|'off'
 //   needsRefloat,             // set by native reset; next grip mousedown re-floats
-//   attachments: Map<el, { offX, offY, width, height, wasHidden, ro }>,
+//   attachments: Map<el, { offX, offY, width, height, snapX, snapY, wasHidden, ro }>,
 //   styleObserver, resizeObserver, handle, onPointerDown, onPointerUp, onScroll,
 // }
 const panelStates = new Map();
 
 // settings.movingPanelsList: { [panelId]: { injectedHeader, followPopup,
-//   followW, followH, handleSide, popupAlign, popupSide,
-//   popups: { [popupId]: { offX, offY, width, height } } } }
+//   followW, followH, handleSide, popupAlign ('left'|'right'|'off'),
+//   popupSide ('top'|'bottom'|'off'),
+//   popups: { [popupId]: { offX, offY, width, height, snapX, snapY } } } }
 function registry() {
     if (!settings.movingPanelsList) settings.movingPanelsList = {};
     return settings.movingPanelsList;
@@ -134,15 +137,20 @@ function createHandle(panel, side) {
     const handle = document.createElement('div');
     handle.id = `${panel.id}header`;
     // dragElement only starts a drag when the mousedown target itself carries
-    // .drag-grabber — that's the grip span, not the follow buttons.
-    handle.className = 'ptr-pick-ui ptr-drag-handle';
+    // .drag-grabber. The BAR carries it, so the whole strip drags — not just
+    // the ⠿ glyph (buttons are safe: their e.target has no .drag-grabber).
+    // Without this, the space-evenly gaps between buttons were dead zones,
+    // and misses near the bottom-right fell into ST's 16px corner-resize
+    // detection ("drag turns into resize").
+    handle.className = 'ptr-pick-ui ptr-drag-handle drag-grabber';
+    handle.title = '拖动此栏移动面板';
     handle.dataset.side = side;
     handle.innerHTML = `
         <span class="drag-grabber ptr-grip" title="拖动移动面板">⠿</span>
         <button type="button" class="ptr-follow" data-dim="p" title="从该面板打开的弹窗自动跟随面板">弹</button>
         <button type="button" class="ptr-follow" data-dim="w" title="附着弹窗跟随面板宽度">宽</button>
-        <button type="button" class="ptr-follow" data-dim="x" title="弹窗与面板左对齐（关闭则保持弹窗出现的横向位置）">左右</button>
-        <button type="button" class="ptr-follow" data-dim="y" title="弹窗贴合在面板上方/下方，点击切换">上下</button>
+        <button type="button" class="ptr-follow" data-dim="x" title="弹窗横向：左对齐/右对齐/关闭，点击循环切换">左右</button>
+        <button type="button" class="ptr-follow" data-dim="y" title="弹窗纵向：下方/上方/关闭，点击循环切换">上下</button>
         <button type="button" class="ptr-dock" title="取消悬浮，恢复原位置（再次拖动手柄可重新悬浮）">归</button>
         <button type="button" class="ptr-side" title="切换手柄位置：面板顶部 / 底部">⇅</button>`;
     // In-panel: the handle moves with the panel by construction, and absolute
@@ -251,13 +259,26 @@ function dockPanel(panel) {
     toastr.info(`#${panel.id} 已恢复原位置；拖动 ⠿ 手柄可重新悬浮`, 'Pretext 渲染增强');
 }
 
+const ALIGN_LABEL = { left: '左对齐', right: '右对齐', off: '自由（保持出现位置）' };
+const SIDE_LABEL = { top: '面板上方', bottom: '面板下方', off: '自由（保持出现位置）' };
+
 function refreshFollowButtons(panel) {
     const state = panelStates.get(panel.id);
     if (!state?.handle) return;
     state.handle.querySelector('[data-dim="p"]')?.classList.toggle('active', state.followPopup);
     state.handle.querySelector('[data-dim="w"]')?.classList.toggle('active', state.followW);
-    state.handle.querySelector('[data-dim="x"]')?.classList.toggle('active', state.popupAlign);
-    state.handle.querySelector('[data-dim="y"]')?.classList.toggle('active', state.popupSide === 'top');
+    const xBtn = state.handle.querySelector('[data-dim="x"]');
+    if (xBtn) {
+        xBtn.classList.toggle('active', state.popupAlign === 'left');
+        xBtn.classList.toggle('active-alt', state.popupAlign === 'right');
+        xBtn.title = `弹窗横向：${ALIGN_LABEL[state.popupAlign]}（点击切换：左→右→关）`;
+    }
+    const yBtn = state.handle.querySelector('[data-dim="y"]');
+    if (yBtn) {
+        yBtn.classList.toggle('active', state.popupSide === 'bottom');
+        yBtn.classList.toggle('active-alt', state.popupSide === 'top');
+        yBtn.title = `弹窗纵向：${SIDE_LABEL[state.popupSide]}（点击切换：下→上→关）`;
+    }
 }
 
 // --- Attachments (popups following their panel) --------------------------------
@@ -292,7 +313,10 @@ function persistPopup(panelId, pop, att, { debounce = false } = {}) {
     const entry = registry()[panelId];
     if (!entry) return;
     if (!entry.popups) entry.popups = {};
-    entry.popups[pop.id] = { offX: att.offX, offY: att.offY, width: att.width, height: att.height };
+    entry.popups[pop.id] = {
+        offX: att.offX, offY: att.offY, width: att.width, height: att.height,
+        snapX: att.snapX ?? null, snapY: att.snapY ?? null,
+    };
     if (!debounce) {
         saveSettings();
         return;
@@ -313,38 +337,41 @@ function clearAttachments(state) {
     state.attachments.clear();
 }
 
-/** [左右] Align attached popups to the panel's left edge (and make that the
- *  default for newly attached popups). Off = keep their own horizontal spot. */
+/** [左右] Cycle attached popups through 左对齐 → 右对齐 → 关闭（自由）.
+ *  The chosen state is also the default for newly attached popups. */
+const ALIGN_CYCLE = { left: 'right', right: 'off', off: 'left' };
 function toggleAlignX(panel) {
     const state = panelStates.get(panel.id);
     if (!state) return;
-    state.popupAlign = !state.popupAlign;
+    state.popupAlign = ALIGN_CYCLE[state.popupAlign] ?? 'left';
     const entry = registry()[panel.id];
     if (entry) {
         entry.popupAlign = state.popupAlign;
         saveSettings();
     }
-    if (state.popupAlign) {
-        const pr = panel.getBoundingClientRect();
-        for (const [pop, att] of state.attachments) {
-            att.offX = 0;
+    const pr = panel.getBoundingClientRect();
+    for (const [pop, att] of state.attachments) {
+        att.snapX = state.popupAlign === 'off' ? null : state.popupAlign;
+        if (att.snapX) {
+            att.offX = att.snapX === 'left' ? 0 : pr.width - att.width;
             // Hidden popups get the new offset now and the position itself
             // when they reappear (wasHidden snap-back).
             if (pop.getBoundingClientRect().width > 0) {
                 markSelfWrite(pop);
-                pop.style.left = `${pr.left}px`;
+                pop.style.left = `${pr.left + att.offX}px`;
             }
-            persistPopup(panel.id, pop, att);
         }
+        persistPopup(panel.id, pop, att);
     }
     refreshFollowButtons(panel);
 }
 
-/** [上下] Snap attached popups flush above or below the panel. */
+/** [上下] Cycle attached popups through 下方 → 上方 → 关闭（自由）. */
+const SIDE_CYCLE = { bottom: 'top', top: 'off', off: 'bottom' };
 function toggleSideY(panel) {
     const state = panelStates.get(panel.id);
     if (!state) return;
-    state.popupSide = state.popupSide === 'top' ? 'bottom' : 'top';
+    state.popupSide = SIDE_CYCLE[state.popupSide] ?? 'bottom';
     const entry = registry()[panel.id];
     if (entry) {
         entry.popupSide = state.popupSide;
@@ -352,12 +379,15 @@ function toggleSideY(panel) {
     }
     const pr = panel.getBoundingClientRect();
     for (const [pop, att] of state.attachments) {
-        // att.height (kept current by adoption) stays sane for hidden popups,
-        // whose live rect is 0.
-        att.offY = state.popupSide === 'top' ? -att.height : pr.height;
-        if (pop.getBoundingClientRect().width > 0) {
-            markSelfWrite(pop);
-            pop.style.top = `${pr.top + att.offY}px`;
+        att.snapY = state.popupSide === 'off' ? null : state.popupSide;
+        if (att.snapY) {
+            // att.height (kept current by adoption) stays sane for hidden
+            // popups, whose live rect is 0.
+            att.offY = att.snapY === 'top' ? -att.height : pr.height;
+            if (pop.getBoundingClientRect().width > 0) {
+                markSelfWrite(pop);
+                pop.style.top = `${pr.top + att.offY}px`;
+            }
         }
         persistPopup(panel.id, pop, att);
     }
@@ -380,13 +410,43 @@ function applySizeFollow(panel, state) {
     }
 }
 
+/** Re-glue snapped attachments after the PANEL itself changed size: popups
+ *  snapped below ride the panel's bottom edge, right-snapped popups ride its
+ *  right edge. (CSS resize doesn't move the panel's top-left, so
+ *  onPanelStyleChanged's translation never fires for it.) */
+function keepSnappedFlush(panel, state) {
+    const pr = panel.getBoundingClientRect();
+    for (const [pop, att] of state.attachments) {
+        if (!pop.isConnected) continue;
+        let touched = false;
+        if (att.snapY === 'bottom' && Math.abs(att.offY - pr.height) > 2) {
+            att.offY = pr.height;
+            touched = true;
+        }
+        if (att.snapX === 'right' && Math.abs(att.offX - (pr.width - att.width)) > 2) {
+            att.offX = pr.width - att.width;
+            touched = true;
+        }
+        if (!touched) continue;
+        if (pop.getBoundingClientRect().width > 0) {
+            markSelfWrite(pop);
+            pop.style.left = `${pr.left + att.offX}px`;
+            pop.style.top = `${pr.top + att.offY}px`;
+        }
+        persistPopup(panel.id, pop, att, { debounce: true });
+    }
+}
+
 /** Adopt a user's manual move/resize of an attached popup: the new offset and
  *  size become the remembered placement for future panel drags and (for
  *  popups with an id) across sessions. Runs from the style-attribute observer
  *  and the per-popup ResizeObserver, so our own writes must be filtered out
  *  first (isSelfWrite). A popup that was HIDDEN and reappears is snapped back
  *  to its remembered placement instead: extensions respawn popups at their
- *  original coordinates, which must not overwrite the memory. */
+ *  original coordinates, which must not overwrite the memory.
+ *  A manual MOVE drops the popup's snap flags (the user owns the spot now);
+ *  a mere SIZE change (content growth, CSS resize) keeps them — snapped edges
+ *  are re-glued so the popup stays flush with the panel. */
 function adoptPopupAdjustment(pop) {
     for (const [id, state] of panelStates) {
         const att = state.attachments.get(pop);
@@ -412,18 +472,37 @@ function adoptPopupAdjustment(pop) {
         if (isSelfWrite(pop)) return;
         const r = pop.getBoundingClientRect();
         if (r.width < 4 || r.height < 4) return; // mid-transition, ignore
-        let changed = false;
-        if (Math.abs(r.left - (pr.left + att.offX)) > 2 || Math.abs(r.top - (pr.top + att.offY)) > 2) {
+        const posChanged = Math.abs(r.left - (pr.left + att.offX)) > 2
+            || Math.abs(r.top - (pr.top + att.offY)) > 2;
+        const sizeChanged = Math.abs(r.width - att.width) > 2
+            || Math.abs(r.height - att.height) > 2;
+        if (posChanged) {
             att.offX = r.left - pr.left;
             att.offY = r.top - pr.top;
-            changed = true;
-        }
-        if (Math.abs(r.width - att.width) > 2 || Math.abs(r.height - att.height) > 2) {
             att.width = r.width;
             att.height = r.height;
-            changed = true;
+            att.snapX = null;
+            att.snapY = null;
+            persistPopup(id, pop, att, { debounce: true });
+            return;
         }
-        if (changed) persistPopup(id, pop, att, { debounce: true });
+        if (sizeChanged) {
+            att.width = r.width;
+            att.height = r.height;
+            // Keep snapped edges flush despite the new size: top-snapped
+            // popups grow upward, right-snapped popups grow leftward.
+            if (att.snapY === 'top') {
+                att.offY = -r.height;
+                markSelfWrite(pop);
+                pop.style.top = `${pr.top + att.offY}px`;
+            }
+            if (att.snapX === 'right') {
+                att.offX = pr.width - r.width;
+                markSelfWrite(pop);
+                pop.style.left = `${pr.left + att.offX}px`;
+            }
+            persistPopup(id, pop, att, { debounce: true });
+        }
         return;
     }
 }
@@ -433,7 +512,7 @@ function isPopupLike(el) {
     if (!el.isConnected || el.dataset.ptrWired) return false;
     if (el.closest('.ptr-pick-ui, .pretext-render-settings')) return false;
     if (el.classList.contains('ptr-drag-handle')) return false;
-    if (NEVER_ATTACH_IDS.has(el.id)) return false;
+    if (NEVER_ATTACH_IDS.has(el.id) || BLOCKED_IDS.has(el.id)) return false;
     if (el.classList.contains('zoomed_avatar')) return false;
     const cs = getComputedStyle(el);
     if (cs.position !== 'fixed' && cs.position !== 'absolute') return false;
@@ -498,26 +577,39 @@ function maybeAttach(el) {
     const { panel, state, cur } = owner;
     const saved = el.id ? registry()[panel.id]?.popups?.[el.id] : null;
 
-    let offX, offY, width, height;
+    let offX, offY, width, height, snapX, snapY;
     if (saved) {
         // Remembered placement wins — the user put this popup there before.
         ({ offX, offY, width, height } = saved);
+        snapX = saved.snapX ?? null;
+        snapY = saved.snapY ?? null;
     } else {
-        // Default: snug against the panel — left-aligned (左右) and flush
-        // above/below (上下). With 左右 off, keep the popup's appeared
-        // horizontal offset relative to the nearer anchor instead.
-        if (state.popupAlign) {
+        // Default: snug against the panel per the 左右/上下 toggles. With a
+        // toggle off, keep the popup's appeared offset relative to the nearer
+        // anchor instead.
+        snapX = state.popupAlign === 'off' ? null : state.popupAlign;
+        snapY = state.popupSide === 'off' ? null : state.popupSide;
+        if (snapX === 'left') {
             offX = 0;
+        } else if (snapX === 'right') {
+            offX = cur.width - popRect.width;
         } else {
             const anchorX = Math.abs(popRect.left - state.origLeft) < Math.abs(popRect.left - cur.left)
                 ? state.origLeft : cur.left;
             offX = popRect.left - anchorX;
         }
-        offY = state.popupSide === 'top' ? -popRect.height : cur.height;
-        // Flip if the default side would fall off-screen.
-        const topPx = cur.top + offY;
-        if (topPx + popRect.height > window.innerHeight || topPx < 0) {
-            offY = state.popupSide === 'top' ? cur.height : -popRect.height;
+        if (snapY) {
+            offY = snapY === 'top' ? -popRect.height : cur.height;
+            // Flip if the default side would fall off-screen.
+            const topPx = cur.top + offY;
+            if (topPx + popRect.height > window.innerHeight || topPx < 0) {
+                offY = snapY === 'top' ? cur.height : -popRect.height;
+                snapY = snapY === 'top' ? 'bottom' : 'top';
+            }
+        } else {
+            const anchorY = Math.abs(popRect.top - state.origTop) < Math.abs(popRect.top - cur.top)
+                ? state.origTop : cur.top;
+            offY = popRect.top - anchorY;
         }
     }
 
@@ -538,6 +630,7 @@ function maybeAttach(el) {
         offX, offY,
         width: width ?? popRect.width,
         height: height ?? popRect.height,
+        snapX, snapY,
         wasHidden: false,
         ro: null,
     };
@@ -669,13 +762,17 @@ function wirePanel(el) {
     const saved = power_user.movingUIState?.[el.id];
     if (saved) $(el).css(saved);
 
+    // Migration: popupAlign used to be a boolean (true = 左对齐).
+    const migAlign = prev?.popupAlign === true ? 'left'
+        : prev?.popupAlign === false ? 'off'
+            : (prev?.popupAlign ?? 'left');
     const entry = {
         injectedHeader: !hasNativeHeader,
         followPopup: prev?.followPopup ?? true,
         followW: prev?.followW ?? false,
         followH: prev?.followH ?? false,
         handleSide: prev?.handleSide ?? 'top',
-        popupAlign: prev?.popupAlign ?? true,
+        popupAlign: migAlign,
         popupSide: prev?.popupSide ?? 'bottom',
         popups: prev?.popups ?? {},
     };
@@ -711,6 +808,7 @@ function wirePanel(el) {
     state.resizeObserver = new ResizeObserver(() => {
         glueHandle(el);
         applySizeFollow(el, state);
+        keepSnappedFlush(el, state);
     });
     state.resizeObserver.observe(el);
     // Absolute handle scrolls with panel content — keep it glued.
@@ -1045,7 +1143,7 @@ function renderExtras() {
             <div class="menu_button" id="ptr-picker-toggle">
                 ${pickerActive ? '取消拾取 (Esc)' : '拾取子窗口…'}
             </div>
-            <small class="ptr-hint">用法：① 点上方按钮进入拾取模式 ② 像 F12 选元素一样点击目标（任何有 id 的元素都行，含其他扩展添加的；可用"父级↑"向外扩大选择）③ 确认后拖面板内 ⠿ 手柄移动、拖右下角调宽高。从面板打开的弹窗会自动跟随并紧贴面板；手柄按钮：[弹] 弹窗跟随开关，[宽] 弹窗宽度跟随面板，[左右] 弹窗与面板左对齐，[上下] 弹窗贴合面板上方/下方，[归] 取消悬浮恢复原位，[⇅] 切换手柄在面板顶部/底部；弹窗可直接拖动/缩放，调整会被记忆</small>
+            <small class="ptr-hint">用法：① 点上方按钮进入拾取模式 ② 像 F12 选元素一样点击目标（任何有 id 的元素都行，含其他扩展添加的；可用"父级↑"向外扩大选择）③ 确认后拖面板内 ⠿ 手柄移动、拖右下角调宽高。从面板打开的弹窗会自动跟随并紧贴面板；手柄按钮：[弹] 弹窗跟随开关，[宽] 弹窗宽度跟随面板，[左右] 左对齐/右对齐/关闭三态循环，[上下] 下方/上方/关闭三态循环（贴合侧在弹窗高度变化时保持紧贴），[归] 取消悬浮恢复原位，[⇅] 切换手柄在面板顶部/底部；弹窗可直接拖动/缩放，调整会被记忆</small>
         </div>
         <div class="ptr-panel-list">${list}</div>
     `);

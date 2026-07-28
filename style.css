@@ -86,6 +86,24 @@
     user-select: none;
 }
 
+/* The whole bar carries .drag-grabber so any point on it starts ST's drag
+   (buttons excepted — their e.target lacks the class). Pin down the native
+   class's side effects (absolute+right:0+z-index:2000+margin+opacity) so the
+   strip keeps its own layout. Must precede the [data-side] rules below so
+   the bottom bar's 18px resize-corner clearance still wins. */
+.ptr-drag-handle.drag-grabber {
+    position: absolute;
+    right: 0;
+    margin: 0;
+    z-index: 1000;
+    opacity: 0.55;
+    cursor: grab;
+}
+
+.ptr-drag-handle.drag-grabber:active {
+    cursor: grabbing;
+}
+
 /* ST's native .drag-grabber is position:absolute; right:0; z-index:2000 —
    inside our bar that makes the grip an overlay covering the buttons and
    swallowing their clicks. Demote it to a normal flex item. */
@@ -153,6 +171,14 @@
     opacity: 1;
     background: var(--SmartThemeQuoteColor, #4caf50);
     border-color: var(--SmartThemeQuoteColor, #4caf50);
+    color: #fff;
+}
+
+/* second state of the 3-state cycles (右对齐 / 上方) */
+.ptr-follow.active-alt {
+    opacity: 1;
+    background: var(--SmartThemeEmColor, #e0913c);
+    border-color: var(--SmartThemeEmColor, #e0913c);
     color: #fff;
 }
 
