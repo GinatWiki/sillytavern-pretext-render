@@ -59,21 +59,21 @@
     z-index: 1000;
 }
 
-/* Grip tab — lives INSIDE the panel, glued to its top or bottom inner edge
-   (glueHandle() compensates for internal scroll). Compact left-aligned tab:
-   width hugs content and keeps the 20px right strip free, so it never covers
-   the bottom-right resize corner. `top` is set inline by glueHandle(). */
+/* Grip bar — lives INSIDE the panel as a full-width strip glued to the top
+   or bottom inner edge (glueHandle() compensates for internal scroll). The
+   panel receives 16px of extra padding on the handle side, so the bar only
+   covers that padding strip — never panel content. Buttons spread evenly.
+   `top` is set inline by glueHandle(). */
 .ptr-drag-handle {
     position: absolute;
     left: 0;
+    right: 0;
     z-index: 1000;
-    display: inline-flex;
+    display: flex;
     align-items: center;
-    gap: 3px;
+    justify-content: space-evenly;
     height: 16px;
-    width: fit-content;
-    max-width: calc(100% - 20px);
-    padding: 0 4px;
+    padding: 0;
     background: var(--SmartThemeBlurColor, rgba(20, 20, 30, 0.85));
     border: 1px solid var(--SmartThemeBorderColor, #555);
     color: var(--SmartThemeBodyColor, #eee);
@@ -83,16 +83,32 @@
     user-select: none;
 }
 
+/* ST's native .drag-grabber is position:absolute; right:0; z-index:2000 —
+   inside our bar that makes the grip an overlay covering the buttons and
+   swallowing their clicks. Demote it to a normal flex item. */
+.ptr-drag-handle .ptr-grip {
+    position: static;
+    z-index: auto;
+    margin: 0;
+    flex: 0 0 auto;
+    cursor: grab;
+}
+
+.ptr-drag-handle .ptr-grip:active {
+    cursor: grabbing;
+}
+
 .ptr-drag-handle[data-side="top"] {
     border-top: none;
     border-left: none;
-    border-radius: 0 0 6px 0;
+    border-right: none;
 }
 
 .ptr-drag-handle[data-side="bottom"] {
+    right: 18px; /* keep the bottom-right resize corner usable */
     border-bottom: none;
     border-left: none;
-    border-radius: 0 6px 0 0;
+    border-right: none;
 }
 
 .ptr-drag-handle:hover {

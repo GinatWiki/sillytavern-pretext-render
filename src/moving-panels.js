@@ -38,8 +38,22 @@ const CONTAINER_TAGS = new Set([
 ]);
 
 // Max distance (px) between a popup's top-left and a panel's original or
-// current top-left for the popup to attach to that panel.
+// current top-left for the popup to attach to that panel (only used when
+// there is no recent interaction with a panel — see interactiveOwner).
 const ATTACH_DISTANCE = 260;
+
+// Height of the grip bar. The panel gets this much extra padding on the
+// handle side, so the bar overlays only padding — never content.
+const HANDLE_H = 16;
+
+// A popup appearing within this window after a pointerdown inside a panel is
+// attributed to that panel directly, regardless of where it opens.
+const INTERACT_WINDOW = 1500;
+
+// Global floating UI that must never be treated as a panel's popup.
+const NEVER_ATTACH_IDS = new Set(['toast-container']);
+
+let lastInteraction = { id: null, t: 0 };
 
 let settings = null;
 let enabled = false;
@@ -162,7 +176,35 @@ function toggleSide(panel) {
         entry.handleSide = state.handleSide;
         saveSettings();
     }
+    setSidePadding(panel, state.handleSide);
     glueHandle(panel);
+}
+
+/** Give the panel HANDLE_H of extra padding on the handle side, so the
+ *  full-width bar overlays only padding (browser-tab-bar effect). Original
+ *  inline paddings are recorded once and restored on unwire. */
+function setSidePadding(panel, side) {
+    if (panel.dataset.ptrPadT === undefined) panel.dataset.ptrPadT = panel.style.paddingTop;
+    if (panel.dataset.ptrPadB === undefined) panel.dataset.ptrPadB = panel.style.paddingBottom;
+    panel.style.paddingTop = panel.dataset.ptrPadT;
+    panel.style.paddingBottom = panel.dataset.ptrPadB;
+    const cs = getComputedStyle(panel);
+    if (side === 'bottom') {
+        panel.style.paddingBottom = `${(parseFloat(cs.paddingBottom) || 0) + HANDLE_H}px`;
+    } else {
+        panel.style.paddingTop = `${(parseFloat(cs.paddingTop) || 0) + HANDLE_H}px`;
+    }
+}
+
+function clearSidePadding(panel) {
+    if (panel.dataset.ptrPadT !== undefined) {
+        panel.style.paddingTop = panel.dataset.ptrPadT;
+        delete panel.dataset.ptrPadT;
+    }
+    if (panel.dataset.ptrPadB !== undefined) {
+        panel.style.paddingBottom = panel.dataset.ptrPadB;
+        delete panel.dataset.ptrPadB;
+    }
 }
 
 /** Undo floating: return the panel to its original (in-flow or stylesheet)
@@ -241,6 +283,8 @@ function isPopupLike(el) {
     if (!el.isConnected || el.dataset.ptrWired) return false;
     if (el.closest('.ptr-pick-ui, .pretext-render-settings')) return false;
     if (el.classList.contains('ptr-drag-handle')) return false;
+    if (NEVER_ATTACH_IDS.has(el.id)) return false;
+    if (el.classList.contains('zoomed_avatar')) return false;
     const cs = getComputedStyle(el);
     if (cs.position !== 'fixed' && cs.position !== 'absolute') return false;
     if (cs.display === 'none' || cs.visibility === 'hidden') return false;
@@ -270,29 +314,59 @@ function findOwnerPanel(popRect) {
     return best;
 }
 
+/** The panel the user just interacted with (pointerdown inside it), if the
+ *  interaction is fresh — popups appearing now almost certainly belong to it,
+ *  no matter where on screen they open. */
+function interactiveOwner() {
+    if (!lastInteraction.id) return null;
+    if (Date.now() - lastInteraction.t > INTERACT_WINDOW) return null;
+    const state = panelStates.get(lastInteraction.id);
+    const panel = state && document.getElementById(lastInteraction.id);
+    if (!state || !panel) return null;
+    return { panel, state, cur: panel.getBoundingClientRect() };
+}
+
 function maybeAttach(el) {
-    if (!isPopupLike(el)) return;
+    if (!(el instanceof HTMLElement)) return;
+    if (el.dataset.ptrWired || el.closest('.ptr-pick-ui')) return;
     for (const [, state] of panelStates) {
         if (state.attachments.has(el)) return; // already attached
     }
+    // Never attach something living inside a wired panel (it already follows
+    // its parent naturally) — nor an ANCESTOR of one (follow-cycle).
+    for (const [id] of panelStates) {
+        const p = document.getElementById(id);
+        if (p && (p.contains(el) || el.contains(p))) return;
+    }
+    if (!isPopupLike(el)) return;
+
     const popRect = el.getBoundingClientRect();
-    const owner = findOwnerPanel(popRect);
-    if (!owner || owner.state.followPopup === false) return;
+    const interactive = interactiveOwner();
+    let owner, offX, offY;
+    if (interactive) {
+        // Opened right after a click inside the panel: keep it where it
+        // appeared (offset relative to the panel's CURRENT position) and
+        // just link it for future drags.
+        owner = interactive;
+        offX = popRect.left - interactive.cur.left;
+        offY = popRect.top - interactive.cur.top;
+    } else {
+        // Discovered passively (e.g. it opened at the panel's ORIGINAL spot
+        // while the panel is elsewhere): re-anchor it onto the panel.
+        owner = findOwnerPanel(popRect);
+        if (!owner) return;
+        offX = popRect.left - owner.state.origLeft;
+        offY = popRect.top - owner.state.origTop;
+    }
+    if (owner.state.followPopup === false) return;
 
     const { panel, state, cur } = owner;
     // Normalize to left/top so we can translate it during drags.
-    el.style.left = `${popRect.left}px`;
-    el.style.top = `${popRect.top}px`;
+    el.style.left = `${cur.left + offX}px`;
+    el.style.top = `${cur.top + offY}px`;
     el.style.right = 'auto';
     el.style.bottom = 'auto';
     if (getComputedStyle(el).position !== 'fixed') el.style.position = 'fixed';
-
-    // Re-anchor: popup appeared relative to the ORIGINAL anchor — shift it to
-    // the panel's current position, keeping the same offset.
-    const offX = popRect.left - state.origLeft;
-    const offY = popRect.top - state.origTop;
-    el.style.left = `${cur.left + offX}px`;
-    el.style.top = `${cur.top + offY}px`;
 
     state.attachments.set(el, { offX, offY });
     applySizeFollow(panel, state);
@@ -426,6 +500,10 @@ function wirePanel(el) {
     registry()[el.id] = entry;
     saveSettings();
 
+    // The injected bar is full-width; give the panel padding on that side so
+    // the bar overlays only the padding strip, never content.
+    if (handle) setSidePadding(el, entry.handleSide);
+
     const rect = el.getBoundingClientRect();
     const state = {
         origLeft: rect.left, origTop: rect.top,
@@ -453,8 +531,15 @@ function wirePanel(el) {
     // Absolute handle scrolls with panel content — keep it glued.
     state.onScroll = () => glueHandle(el);
     el.addEventListener('scroll', state.onScroll, { passive: true });
-    // Buttons inside the panel often open popups right after being clicked.
-    state.onPointerDown = () => setTimeout(scanForPopups, 350);
+    // Popups usually open right after a click inside the panel: remember the
+    // interaction (maybeAttach prefers it over proximity guessing) and scan a
+    // few times to catch slow-rendering popups.
+    state.onPointerDown = () => {
+        lastInteraction = { id: el.id, t: Date.now() };
+        setTimeout(scanForPopups, 150);
+        setTimeout(scanForPopups, 500);
+        setTimeout(scanForPopups, 1200);
+    };
     el.addEventListener('pointerdown', state.onPointerDown);
 
     const headerEl = handle ?? document.getElementById(`${el.id}header`);
@@ -495,6 +580,7 @@ function unwirePanel(el, { keepState = true, keepRegistry = false } = {}) {
         el.style.position = el.dataset.ptrRelFix;
         delete el.dataset.ptrRelFix;
     }
+    clearSidePadding(el);
     delete el.dataset.ptrWired;
     if (!keepRegistry) delete registry()[el.id];
     if (!keepState && power_user.movingUIState) {
@@ -695,8 +781,18 @@ function startObserver() {
     domObserver = new MutationObserver(muts => {
         const added = muts.flatMap(m => [...m.addedNodes]);
         if (added.length) scanAdded(added);
+        // Many popups pre-exist in the DOM and are only SHOWN via a class or
+        // style flip (no childList mutation) — catch those too.
+        for (const m of muts) {
+            if (m.type === 'attributes') maybeAttach(m.target);
+        }
     });
-    domObserver.observe(document.body, { childList: true, subtree: true });
+    domObserver.observe(document.body, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['class', 'style'],
+    });
 }
 
 // --- Native reset recovery ------------------------------------------------------

@@ -66,13 +66,21 @@
 - 增强方式：**拾取模式**——设置面板点"拾取子窗口"后点击任意带 id 的元素（≥40×16，
   含其他扩展添加的；静态定位元素由 floatPanel 记录原样式后转 fixed），确认条支持"父级↑"
   向外扩选；进入拾取时自动收起所有抽屉防遮挡，退出时还原
-- 手柄：**面板内**角标（`#<id>header`，prepend 进面板、absolute 定位、宽度贴合内容、
-  右侧留 20px 避开 resize 角），随面板移动天然跟随，无需同步代码；glueHandle 用
-  scrollTop/clientHeight 补偿面板内部滚动（ResizeObserver 覆盖 CSS resize——它不触发
-  style 属性变更）；[⇅] 按钮切换吸附顶部/底部并持久化 handleSide；面板被 unfloat 回
-  static 时用 position:relative（视觉等价 static）保住手柄的包含块；所属扩展用
-  innerHTML 重绘面板会抹掉手柄，scanAdded 末尾有修复通道按 state.handle.isConnected
-  检测并重建
+- 手柄：**面板内全宽横栏**（`#<id>header`，prepend 进面板、absolute left:0/right:0、
+  flex space-evenly 按钮均布，类似浏览器标签栏），面板加 16px 对应侧 padding 容纳横栏
+  ——只覆盖 padding 条不覆盖内容；底部模式 right 留 18px 让出 resize 角；随面板移动
+  天然跟随；glueHandle 用 scrollTop/clientHeight 补偿面板内部滚动（ResizeObserver 覆盖
+  CSS resize——它不触发 style 属性变更）；[⇅] 切换吸附顶部/底部并持久化 handleSide +
+  setSidePadding 换边；unfloat 回 static 时用 position:relative（视觉等价 static）保住
+  手柄包含块；所属扩展 innerHTML 重绘面板会抹掉手柄，scanAdded 末尾按
+  state.handle.isConnected 检测重建
+- **坑：ST 原生 `.drag-grabber` 是 `position:absolute; right:0; z-index:2000`**——
+  直接用作手柄 grip 会覆盖在按钮上吞掉点击（"按钮没反应"的真因），需在我们的手柄内
+  降级为普通 flex item（position:static）
+- 弹窗归属判定：**优先交互导向**——面板内 pointerdown 后 1500ms 内出现的弹窗直接归该
+  面板（偏移按面板当前位置算，弹窗留在原地仅建立跟随链接）；无交互时才退回距离启发式
+  （重锚定到面板当前位置）；观察器同时监听 class/style 属性变化，捕获"预建 DOM、切
+  class 显示"型弹窗；排除面板内部元素、面板的祖先、#toast-container、.zoomed_avatar
 - 弹窗跟随：pointerdown 后 350ms + body 级 MutationObserver 扫描新出现的 fixed/absolute
   弹窗，按到面板原锚点/当前位置的曼哈顿距离 ≤260px 判定归属，重锚定偏移量后随拖动平移；
   手柄 [弹] 总开关（默认开）、[宽][高] 尺寸跟随，均持久化到 movingPanelsList
