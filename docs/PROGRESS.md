@@ -98,14 +98,17 @@
 - 弹窗跟随：pointerdown 后 350ms + body 级 MutationObserver 扫描新出现的 fixed/absolute
   弹窗，按到面板原锚点/当前位置的曼哈顿距离 ≤260px 判定归属；默认紧贴面板（对齐与
   方位由手柄三态开关决定，越界自动翻面），随后随拖动平移；手柄 [弹] 总开关（默认开）、
-  [宽] 宽度跟随、[左右] 左对齐→右对齐→关闭循环（默认左对齐）、[上下] 下方→上方→关闭
-  循环（默认下方），均持久化到 movingPanelsList
+  [宽] 宽度跟随、[左|右|关] 横向三态循环（默认左对齐）、[上|下|关] 纵向三态循环
+  （默认上方）——按钮文字直接显示当前状态（绿=第一态、橙=第二态、灰=关），
+  均持久化到 movingPanelsList
 - 紧贴保持：每个附着记录带 snapX/snapY 标记（= 对齐/贴合状态，null = 用户手动摆放）。
   弹窗尺寸变化（内容增长、CSS 缩放）时 top 贴合的弹窗向上生长、right 对齐的向左生长，
-  底边/右边始终紧贴面板（修复"弹窗高度不同导致留空"）；面板自身尺寸变化时下方贴合的
-  弹窗随面板底边、右对齐的随面板右边移动（keepSnappedFlush，挂在面板 ResizeObserver
-  上——CSS 缩放不改 style 属性，onPanelStyleChanged 不会触发）；用户拖动弹窗则清除
-  snapX/snapY，转为纯偏移跟随
+  底边/右边始终紧贴面板；面板自身尺寸变化时下方贴合的弹窗随面板底边、右对齐的随面板
+  右边移动（keepSnappedFlush，挂在面板 ResizeObserver 上——CSS 缩放不改 style 属性，
+  onPanelStyleChanged 不会触发）；用户拖动弹窗则清除 snapX/snapY，转为纯偏移跟随。
+  **坑：弹窗开合后的内容二次渲染常落在 markSelfWrite 60ms 窗口内被误过滤，留空隙
+  ——收养判定改为先比对记录值（位置尺寸全匹配=我们自己写的，直接返回），窗口只挡
+  拖动帧噪声**
 - 弹窗自由调节与记忆：附着弹窗规范化 position:fixed + resize:both；style/class 属性
   观察器 + 每弹窗 ResizeObserver 把用户拖动/缩放"收养"为新偏移与尺寸（markSelfWrite
   60ms 窗口防止误收养我们自己的写入；收养路径 saveSettings 走 800ms 防抖）；有 id 的

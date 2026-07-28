@@ -149,8 +149,8 @@ function createHandle(panel, side) {
         <span class="drag-grabber ptr-grip" title="拖动移动面板">⠿</span>
         <button type="button" class="ptr-follow" data-dim="p" title="从该面板打开的弹窗自动跟随面板">弹</button>
         <button type="button" class="ptr-follow" data-dim="w" title="附着弹窗跟随面板宽度">宽</button>
-        <button type="button" class="ptr-follow" data-dim="x" title="弹窗横向：左对齐/右对齐/关闭，点击循环切换">左右</button>
-        <button type="button" class="ptr-follow" data-dim="y" title="弹窗纵向：下方/上方/关闭，点击循环切换">上下</button>
+        <button type="button" class="ptr-follow" data-dim="x" title="弹窗横向：左对齐/右对齐/关闭，点击循环切换">左</button>
+        <button type="button" class="ptr-follow" data-dim="y" title="弹窗纵向：上方/下方/关闭，点击循环切换">上</button>
         <button type="button" class="ptr-dock" title="取消悬浮，恢复原位置（再次拖动手柄可重新悬浮）">归</button>
         <button type="button" class="ptr-side" title="切换手柄位置：面板顶部 / 底部">⇅</button>`;
     // In-panel: the handle moves with the panel by construction, and absolute
@@ -259,25 +259,31 @@ function dockPanel(panel) {
     toastr.info(`#${panel.id} 已恢复原位置；拖动 ⠿ 手柄可重新悬浮`, 'Pretext 渲染增强');
 }
 
-const ALIGN_LABEL = { left: '左对齐', right: '右对齐', off: '自由（保持出现位置）' };
-const SIDE_LABEL = { top: '面板上方', bottom: '面板下方', off: '自由（保持出现位置）' };
+const ALIGN_LABEL = { left: '左对齐', right: '右对齐', off: '关闭（保持出现位置）' };
+const SIDE_LABEL = { top: '面板上方', bottom: '面板下方', off: '关闭（保持出现位置）' };
+const ALIGN_MARK = { left: '左', right: '右', off: '关' };
+const SIDE_MARK = { top: '上', bottom: '下', off: '关' };
 
 function refreshFollowButtons(panel) {
     const state = panelStates.get(panel.id);
     if (!state?.handle) return;
     state.handle.querySelector('[data-dim="p"]')?.classList.toggle('active', state.followPopup);
     state.handle.querySelector('[data-dim="w"]')?.classList.toggle('active', state.followW);
+    // 左右/上下 are 3-state cycles; the button TEXT shows the current state
+    // (绿 = 第一态, 橙 = 第二态, 灰 = 关).
     const xBtn = state.handle.querySelector('[data-dim="x"]');
     if (xBtn) {
+        xBtn.textContent = ALIGN_MARK[state.popupAlign] ?? ALIGN_MARK.left;
         xBtn.classList.toggle('active', state.popupAlign === 'left');
         xBtn.classList.toggle('active-alt', state.popupAlign === 'right');
-        xBtn.title = `弹窗横向：${ALIGN_LABEL[state.popupAlign]}（点击切换：左→右→关）`;
+        xBtn.title = `弹窗横向：${ALIGN_LABEL[state.popupAlign] ?? ALIGN_LABEL.left}（点击循环：左→右→关）`;
     }
     const yBtn = state.handle.querySelector('[data-dim="y"]');
     if (yBtn) {
-        yBtn.classList.toggle('active', state.popupSide === 'bottom');
-        yBtn.classList.toggle('active-alt', state.popupSide === 'top');
-        yBtn.title = `弹窗纵向：${SIDE_LABEL[state.popupSide]}（点击切换：下→上→关）`;
+        yBtn.textContent = SIDE_MARK[state.popupSide] ?? SIDE_MARK.top;
+        yBtn.classList.toggle('active', state.popupSide === 'top');
+        yBtn.classList.toggle('active-alt', state.popupSide === 'bottom');
+        yBtn.title = `弹窗纵向：${SIDE_LABEL[state.popupSide] ?? SIDE_LABEL.top}（点击循环：上→下→关）`;
     }
 }
 
@@ -366,12 +372,12 @@ function toggleAlignX(panel) {
     refreshFollowButtons(panel);
 }
 
-/** [上下] Cycle attached popups through 下方 → 上方 → 关闭（自由）. */
-const SIDE_CYCLE = { bottom: 'top', top: 'off', off: 'bottom' };
+/** [上下] Cycle attached popups through 上方 → 下方 → 关闭（自由）. */
+const SIDE_CYCLE = { top: 'bottom', bottom: 'off', off: 'top' };
 function toggleSideY(panel) {
     const state = panelStates.get(panel.id);
     if (!state) return;
-    state.popupSide = SIDE_CYCLE[state.popupSide] ?? 'bottom';
+    state.popupSide = SIDE_CYCLE[state.popupSide] ?? 'top';
     const entry = registry()[panel.id];
     if (entry) {
         entry.popupSide = state.popupSide;
@@ -469,14 +475,20 @@ function adoptPopupAdjustment(pop) {
             pop.style.height = `${att.height}px`;
             return;
         }
-        if (isSelfWrite(pop)) return;
         const r = pop.getBoundingClientRect();
         if (r.width < 4 || r.height < 4) return; // mid-transition, ignore
-        const posChanged = Math.abs(r.left - (pr.left + att.offX)) > 2
-            || Math.abs(r.top - (pr.top + att.offY)) > 2;
-        const sizeChanged = Math.abs(r.width - att.width) > 2
-            || Math.abs(r.height - att.height) > 2;
-        if (posChanged) {
+        const posMatches = Math.abs(r.left - (pr.left + att.offX)) <= 2
+            && Math.abs(r.top - (pr.top + att.offY)) <= 2;
+        const sizeMatches = Math.abs(r.width - att.width) <= 2
+            && Math.abs(r.height - att.height) <= 2;
+        // Our own writes always land exactly on the recorded offset/size, so
+        // a full match means "nothing external happened" — no timing window
+        // needed. This lets post-open content reflows (which often arrive
+        // within the 60ms self-write window right after we placed the popup)
+        // still get adopted and re-glued instead of leaving a flush gap.
+        if (posMatches && sizeMatches) return;
+        if (isSelfWrite(pop)) return; // mid-drag frame noise
+        if (!posMatches) {
             att.offX = r.left - pr.left;
             att.offY = r.top - pr.top;
             att.width = r.width;
@@ -486,23 +498,23 @@ function adoptPopupAdjustment(pop) {
             persistPopup(id, pop, att, { debounce: true });
             return;
         }
-        if (sizeChanged) {
-            att.width = r.width;
-            att.height = r.height;
-            // Keep snapped edges flush despite the new size: top-snapped
-            // popups grow upward, right-snapped popups grow leftward.
-            if (att.snapY === 'top') {
-                att.offY = -r.height;
-                markSelfWrite(pop);
-                pop.style.top = `${pr.top + att.offY}px`;
-            }
-            if (att.snapX === 'right') {
-                att.offX = pr.width - r.width;
-                markSelfWrite(pop);
-                pop.style.left = `${pr.left + att.offX}px`;
-            }
-            persistPopup(id, pop, att, { debounce: true });
+        // posMatches is guaranteed here (the !posMatches branch returned),
+        // so a mismatch is a pure size change (content growth, CSS resize).
+        att.width = r.width;
+        att.height = r.height;
+        // Keep snapped edges flush despite the new size: top-snapped
+        // popups grow upward, right-snapped popups grow leftward.
+        if (att.snapY === 'top') {
+            att.offY = -r.height;
+            markSelfWrite(pop);
+            pop.style.top = `${pr.top + att.offY}px`;
         }
+        if (att.snapX === 'right') {
+            att.offX = pr.width - r.width;
+            markSelfWrite(pop);
+            pop.style.left = `${pr.left + att.offX}px`;
+        }
+        persistPopup(id, pop, att, { debounce: true });
         return;
     }
 }
@@ -773,7 +785,7 @@ function wirePanel(el) {
         followH: prev?.followH ?? false,
         handleSide: prev?.handleSide ?? 'top',
         popupAlign: migAlign,
-        popupSide: prev?.popupSide ?? 'bottom',
+        popupSide: prev?.popupSide ?? 'top',
         popups: prev?.popups ?? {},
     };
     registry()[el.id] = entry;
@@ -1143,7 +1155,7 @@ function renderExtras() {
             <div class="menu_button" id="ptr-picker-toggle">
                 ${pickerActive ? '取消拾取 (Esc)' : '拾取子窗口…'}
             </div>
-            <small class="ptr-hint">用法：① 点上方按钮进入拾取模式 ② 像 F12 选元素一样点击目标（任何有 id 的元素都行，含其他扩展添加的；可用"父级↑"向外扩大选择）③ 确认后拖面板内 ⠿ 手柄移动、拖右下角调宽高。从面板打开的弹窗会自动跟随并紧贴面板；手柄按钮：[弹] 弹窗跟随开关，[宽] 弹窗宽度跟随面板，[左右] 左对齐/右对齐/关闭三态循环，[上下] 下方/上方/关闭三态循环（贴合侧在弹窗高度变化时保持紧贴），[归] 取消悬浮恢复原位，[⇅] 切换手柄在面板顶部/底部；弹窗可直接拖动/缩放，调整会被记忆</small>
+            <small class="ptr-hint">用法：① 点上方按钮进入拾取模式 ② 像 F12 选元素一样点击目标（任何有 id 的元素都行，含其他扩展添加的；可用"父级↑"向外扩大选择）③ 确认后拖面板内 ⠿ 手柄移动、拖右下角调宽高。从面板打开的弹窗会自动跟随并紧贴面板；手柄按钮：[弹] 弹窗跟随开关，[宽] 弹窗宽度跟随面板，[左/右/关] 弹窗横向三态循环（左对齐/右对齐/关闭），[上/下/关] 弹窗纵向三态循环（贴上方/贴下方/关闭，贴合侧在弹窗高度变化时保持紧贴），按钮文字即当前状态；[归] 取消悬浮恢复原位，[⇅] 切换手柄在面板顶部/底部；弹窗可直接拖动/缩放，调整会被记忆</small>
         </div>
         <div class="ptr-panel-list">${list}</div>
     `);
