@@ -100,26 +100,25 @@
   方位由手柄三态开关决定，越界自动翻面），随后随拖动平移；手柄 [弹] 总开关（默认开）、
   [宽] 宽度跟随、[左|右|关] 横向三态循环（默认左对齐）、[上|下|关] 纵向三态循环
   （默认上方）——按钮文字直接显示当前状态（绿=第一态、橙=第二态、灰=关），
-  均持久化到 movingPanelsList
-- 紧贴保持：每个附着记录带 snapX/snapY 标记（= 对齐/贴合状态，null = 用户手动摆放）。
-  弹窗尺寸变化（内容增长、CSS 缩放）时 top 贴合的弹窗向上生长、right 对齐的向左生长，
-  底边/右边始终紧贴面板；面板自身尺寸变化时下方贴合的弹窗随面板底边、右对齐的随面板
-  右边移动（keepSnappedFlush，挂在面板 ResizeObserver 上——CSS 缩放不改 style 属性，
-  onPanelStyleChanged 不会触发）；用户拖动弹窗则清除 snapX/snapY，转为纯偏移跟随。
-  **坑：弹窗开合后的内容二次渲染常落在 markSelfWrite 60ms 窗口内被误过滤，留空隙
-  ——收养判定改为先比对记录值（位置尺寸全匹配=我们自己写的，直接返回），窗口只挡
-  拖动帧噪声**
-- 弹窗自由调节与记忆：附着弹窗规范化 position:fixed + resize:both；style/class 属性
-  观察器 + 每弹窗 ResizeObserver 把用户拖动/缩放"收养"为新偏移与尺寸（markSelfWrite
-  60ms 窗口防止误收养我们自己的写入；收养路径 saveSettings 走 800ms 防抖）；有 id 的
-  弹窗持久化到 movingPanelsList[panelId].popups[popupId]（含 snapX/snapY）跨会话记忆；
-  弹窗隐藏（display:none）时不收养，重新显示时按记忆位置回贴（wasHidden），防止扩展
-  重开弹窗的出生坐标覆盖记忆
-- **坑：扩展复用弹窗元素换内容（"顶掉"）会把弹窗重锚定回出生坐标**——不关闭不重开，
-  wasHidden 分支拦不到，位置变化被当成用户拖动 → 记忆被出生坐标覆盖、snap 清除、不再
-  贴齐。修复：document 级 pointerdown/up 追踪（capture），位置变化仅当指针正按在该弹窗
-  上（或松开 300ms 内）才算用户拖动；否则视为程序化重锚——收养新尺寸、保留记忆位置、
-  按 snap 标记重新贴齐
+  均持久化到 movingPanelsList；detached 时弹窗脱壳放回壳当前位置
+- 弹窗记忆：movingPanelsList[panelId].popups[popupId] = { offX, offY, width, height,
+  snapX, snapY }；offX/offY 仅"关"态手动摆放有意义，width/height 仅用户钉过尺寸才有
+  （undefined = 自适应，JSON 自动省略）；收养路径 saveSettings 走 800ms 防抖
+- **已知取舍**：弹窗入壳后 `body > #popupId` 这类祖先选择器会失效（换父级）；
+  transform 入场动画被 .ptr-shelled 中和；<dialog> top-layer 行为会丢（position 被中和）
+- **弹窗外壳（ptr-pop-shell）**：附着时把弹窗塞进我们创建的 fixed 外壳，弹窗变为壳内
+  静态子元素（.ptr-shelled：position/inset/transform/margin 全 !important 中和）——扩展
+  对弹窗的 left/top 重锚、"顶掉"换内容、出生坐标全部失效，不再需要 JS 追着调。壳按
+  snap 状态**边锚定**：上 → `bottom = innerHeight - panel.top`（内容变高自动向上长、
+  底边永贴）、下 → `top = panel.bottom`、左 → `left = panel.left`、右 →
+  `right = innerWidth - panel.right`；关 → 面板相对偏移 left/top。壳 height:auto 拥抱
+  内容，内容增长/换弹窗自动保持贴边；壳 z-index 取弹窗计算值；隐藏弹窗 → 壳 display:none
+  （wasHidden 回贴重布局）；扩展把弹窗移出壳会被塞回
+- 壳的用户调节：壳 resize:both（缩放角在壳上）；缩放手势期间临时切 left/top 锚定
+  （bottom/right 锚定的盒子缩放手感是反的），松手恢复 snap 锚定；RO 只在指针按住壳时
+  才钉尺寸（内容拥抱变化忽略）；钉了宽/高的壳加 ptr-w/ptr-h-fixed，弹窗 100% 填满；
+  弹窗自身拖拽（dragElement 等写内联 left/top）在指针按住时**镜像到壳上**并清 snap
+  ——偏移持久化，弹窗内联清空（本来就无效）
 - [归] 按钮 dockPanel：静态来源面板 unfloatPanel 恢复文档流 + 清 right/bottom/height；
   原本就定位的面板清内联几何交还样式表；同时删除 movingUIState 记录，重载不还原
 - 原生重置兼容：监听 `MOVABLE_PANELS_RESET`（='movable_panels_reset'，events.js 定义、

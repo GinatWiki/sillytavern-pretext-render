@@ -8,12 +8,15 @@
 //
 // On top of plain dragging this module provides:
 // - an in-panel grip tab (top/bottom switchable, keeps clear of the
-//   bottom-right resize corner; moves with the panel by construction)
-// - attachment: popups opened from a moved panel snap flush to it (per-panel
-//   左右 toggle: left/right/off, 上下 toggle: top/bottom/off) and follow its
-//   drags; snapped popups stay flush across content-height changes; user
-//   moves/resizes of an attached popup are adopted and remembered (per popup
-//   id, across sessions); optional width follow per panel
+//   bottom-right resize corner; the whole bar drags, not just the ⠿ glyph)
+// - attachment: popups opened from a moved panel are wrapped in a SHELL that
+//   is edge-anchored to the panel (per-panel 左右 toggle: left/right/off,
+//   上下 toggle: top/bottom/off). Anchored by the matching edge (上 → bottom
+//   anchor, 右 → right anchor), shells hug their content and re-glue
+//   themselves on any reflow or content swap — extension re-anchors of the
+//   popup are inert inside the shell. User drags of the popup's own drag
+//   logic are mirrored onto the shell and remembered (per popup id, across
+//   sessions); optional width follow per panel
 // - native-reset recovery: ST's MovingUI reset no longer makes floated
 //   panels vanish; they return to the document flow and re-float on next drag
 
@@ -65,15 +68,21 @@ const selfWriteAt = new Map();
 function markSelfWrite(el) { selfWriteAt.set(el, performance.now()); }
 function isSelfWrite(el) { return performance.now() - (selfWriteAt.get(el) ?? -1e9) < 60; }
 
-// Direct-manipulation tracker for attached popups. A popup POSITION change is
-// only a user drag when the pointer is down on that popup (or was released
-// <300ms ago). Extensions re-anchor reused popups at their spawn coordinates
-// when swapping content ("顶掉") — without this, those programmatic jumps get
-// adopted as user placements, wiping the remembered spot and snap flags.
+// Direct-manipulation tracker for attached popups/shells. A popup position
+// write only counts as a user drag when the pointer is down on that popup (or
+// was released <300ms ago); a shell resize likewise. Extensions re-anchor
+// reused popups at their spawn coordinates when swapping content ("顶掉") —
+// those programmatic jumps must never become "user placements".
 let popupPtr = { el: null, until: 0 };
 function onPopupPtrDown(e) {
     for (const [, state] of panelStates) {
-        for (const pop of state.attachments.keys()) {
+        for (const [pop, att] of state.attachments) {
+            if (att.shell === e.target) {
+                // Pointer on the shell itself: the resize corner.
+                popupPtr = { el: att.shell, until: Infinity };
+                prepShellResize(att, e);
+                return;
+            }
             if (pop === e.target || pop.contains(e.target)) {
                 popupPtr = { el: pop, until: Infinity };
                 return;
@@ -83,9 +92,10 @@ function onPopupPtrDown(e) {
 }
 function onPopupPtrUp() {
     if (popupPtr.el) popupPtr.until = performance.now() + 300;
+    endShellResize();
 }
-function isUserManipulating(pop) {
-    return popupPtr.el === pop && performance.now() < popupPtr.until;
+function isUserManipulating(el) {
+    return popupPtr.el === el && performance.now() < popupPtr.until;
 }
 
 let settings = null;
@@ -101,7 +111,8 @@ let settingsRoot = null; // jQuery container for the extras UI
 //   followPopup, followW, followH, handleSide,
 //   popupAlign, popupSide,  // 'left'|'right'|'off', 'top'|'bottom'|'off'
 //   needsRefloat,             // set by native reset; next grip mousedown re-floats
-//   attachments: Map<el, { offX, offY, width, height, snapX, snapY, wasHidden, ro }>,
+//   attachments: Map<popupEl, { shell, offX, offY, width, height,
+//                               snapX, snapY, wasHidden, ro }>,
 //   styleObserver, resizeObserver, handle, onPointerDown, onPointerUp, onScroll,
 // }
 const panelStates = new Map();
@@ -329,7 +340,7 @@ function toggleFollow(panel, dim) {
         saveSettings();
     }
     refreshFollowButtons(panel);
-    applySizeFollow(panel, state);
+    relayoutPanel(panel, state);
 }
 
 let popupPersistTimer = null;
@@ -354,16 +365,32 @@ function persistPopup(panelId, pop, att, { debounce = false } = {}) {
     popupPersistTimer = setTimeout(saveSettings, 800);
 }
 
-/** Detach a single popup: stop observing it and drop the follow link. */
+/** Detach a single popup: un-shell it (hand it back to the document at the
+ *  shell's current spot), stop observing and drop the follow link. */
 function detachPopup(state, pop) {
-    state.attachments.get(pop)?.ro?.disconnect();
+    const att = state.attachments.get(pop);
+    if (!att) return;
+    att.ro?.disconnect();
+    const sh = att.shell;
+    if (pop.isConnected) {
+        pop.classList.remove('ptr-shelled');
+        if (sh?.isConnected) {
+            const r = sh.getBoundingClientRect();
+            sh.before(pop);
+            pop.style.position = 'fixed';
+            pop.style.left = `${r.left}px`;
+            pop.style.top = `${r.top}px`;
+            pop.style.right = 'auto';
+            pop.style.bottom = 'auto';
+        }
+    }
+    sh?.remove();
     state.attachments.delete(pop);
 }
 
 /** Detach all of a panel's popups (follow toggled off, dock, native reset). */
 function clearAttachments(state) {
-    for (const att of state.attachments.values()) att.ro?.disconnect();
-    state.attachments.clear();
+    for (const pop of [...state.attachments.keys()]) detachPopup(state, pop);
 }
 
 /** [左右] Cycle attached popups through 左对齐 → 右对齐 → 关闭（自由）.
@@ -378,18 +405,10 @@ function toggleAlignX(panel) {
         entry.popupAlign = state.popupAlign;
         saveSettings();
     }
-    const pr = panel.getBoundingClientRect();
     for (const [pop, att] of state.attachments) {
         att.snapX = state.popupAlign === 'off' ? null : state.popupAlign;
-        if (att.snapX) {
-            att.offX = att.snapX === 'left' ? 0 : pr.width - att.width;
-            // Hidden popups get the new offset now and the position itself
-            // when they reappear (wasHidden snap-back).
-            if (pop.getBoundingClientRect().width > 0) {
-                markSelfWrite(pop);
-                pop.style.left = `${pr.left + att.offX}px`;
-            }
-        }
+        if (!att.snapX) freezeOffset(panel, att, 'x'); // 关: stay where it is
+        layoutShell(panel, att);
         persistPopup(panel.id, pop, att);
     }
     refreshFollowButtons(panel);
@@ -406,155 +425,179 @@ function toggleSideY(panel) {
         entry.popupSide = state.popupSide;
         saveSettings();
     }
-    const pr = panel.getBoundingClientRect();
     for (const [pop, att] of state.attachments) {
         att.snapY = state.popupSide === 'off' ? null : state.popupSide;
-        if (att.snapY) {
-            // att.height (kept current by adoption) stays sane for hidden
-            // popups, whose live rect is 0.
-            att.offY = att.snapY === 'top' ? -att.height : pr.height;
-            if (pop.getBoundingClientRect().width > 0) {
-                markSelfWrite(pop);
-                pop.style.top = `${pr.top + att.offY}px`;
-            }
-        }
+        if (!att.snapY) freezeOffset(panel, att, 'y'); // 关: stay where it is
+        layoutShell(panel, att);
         persistPopup(panel.id, pop, att);
     }
     refreshFollowButtons(panel);
 }
 
-function applySizeFollow(panel, state) {
-    if (!state.followW && !state.followH) return;
-    const r = panel.getBoundingClientRect();
-    for (const [pop, att] of state.attachments) {
-        markSelfWrite(pop);
-        if (state.followW) {
-            pop.style.width = `${r.width}px`;
-            att.width = r.width;
-        }
-        if (state.followH) {
-            pop.style.height = `${r.height}px`;
-            att.height = r.height;
-        }
-    }
-}
-
-/** Re-glue snapped attachments after the PANEL itself changed size: popups
- *  snapped below ride the panel's bottom edge, right-snapped popups ride its
- *  right edge. (CSS resize doesn't move the panel's top-left, so
- *  onPanelStyleChanged's translation never fires for it.) */
-function keepSnappedFlush(panel, state) {
+/** When a snap is switched off, remember the shell's current panel-relative
+ *  offset so the popup simply stays put instead of jumping. */
+function freezeOffset(panel, att, axis) {
+    if (att.wasHidden || !att.shell?.isConnected) return; // hidden shell: zero rect
     const pr = panel.getBoundingClientRect();
-    for (const [pop, att] of state.attachments) {
-        if (!pop.isConnected) continue;
-        let touched = false;
-        if (att.snapY === 'bottom' && Math.abs(att.offY - pr.height) > 2) {
-            att.offY = pr.height;
-            touched = true;
-        }
-        if (att.snapX === 'right' && Math.abs(att.offX - (pr.width - att.width)) > 2) {
-            att.offX = pr.width - att.width;
-            touched = true;
-        }
-        if (!touched) continue;
-        if (pop.getBoundingClientRect().width > 0) {
-            markSelfWrite(pop);
-            pop.style.left = `${pr.left + att.offX}px`;
-            pop.style.top = `${pr.top + att.offY}px`;
-        }
-        persistPopup(panel.id, pop, att, { debounce: true });
+    const r = att.shell.getBoundingClientRect();
+    if (axis === 'x') att.offX = r.left - pr.left;
+    else att.offY = r.top - pr.top;
+}
+
+/** Position a popup's shell against the panel. Snapped shells are anchored
+ *  by the matching EDGE (上 → bottom-anchored, 右 → right-anchored), so
+ *  content growth or a swapped-in popup re-glues itself with zero JS — that
+ *  self-gluing is the whole point of the shell. Manual placements (snap off)
+ *  use the remembered panel-relative offset. */
+function layoutShell(panel, att) {
+    const sh = att.shell;
+    if (!sh?.isConnected) return;
+    const pr = panel.getBoundingClientRect();
+    if (att.snapX === 'left') {
+        sh.style.left = `${pr.left}px`;
+        sh.style.right = 'auto';
+    } else if (att.snapX === 'right') {
+        sh.style.left = 'auto';
+        sh.style.right = `${window.innerWidth - pr.right}px`;
+    } else {
+        sh.style.left = `${pr.left + att.offX}px`;
+        sh.style.right = 'auto';
+    }
+    if (att.snapY === 'top') {
+        sh.style.top = 'auto';
+        sh.style.bottom = `${window.innerHeight - pr.top}px`;
+    } else if (att.snapY === 'bottom') {
+        sh.style.top = `${pr.bottom}px`;
+        sh.style.bottom = 'auto';
+    } else {
+        sh.style.top = `${pr.top + att.offY}px`;
+        sh.style.bottom = 'auto';
     }
 }
 
-/** Adopt a user's manual move/resize of an attached popup: the new offset and
- *  size become the remembered placement for future panel drags and (for
- *  popups with an id) across sessions. Runs from the style-attribute observer
- *  and the per-popup ResizeObserver. Filters:
- *  - full offset/size match = our own write, ignored (no timing window
- *    needed); the 60ms isSelfWrite window only covers mid-drag frame noise;
- *  - a HIDDEN popup's zero rect is not an adjustment; on reappear it is
- *    snapped back to its remembered placement (extensions respawn popups at
- *    their original coordinates, which must not overwrite the memory);
- *  - a POSITION change counts as a user drag only while the pointer is on
- *    the popup (isUserManipulating); otherwise it's a programmatic re-anchor
- *    (extension swapped a reused popup's content) — we keep the remembered
- *    spot, adopt the new size, and re-glue snapped edges. */
+/** Shell size: [宽]/[高] follow wins, then the user-pinned resize, else auto
+ *  (hug the popup). followH has no UI left but stays supported. */
+function applyShellSize(panel, state, att) {
+    const sh = att.shell;
+    if (!sh?.isConnected) return;
+    const pr = panel.getBoundingClientRect();
+    const w = state.followW ? pr.width : att.width;
+    sh.classList.toggle('ptr-w-fixed', w !== undefined);
+    sh.style.width = w === undefined ? 'auto' : `${w}px`;
+    const h = state.followH ? pr.height : att.height;
+    sh.classList.toggle('ptr-h-fixed', h !== undefined);
+    sh.style.height = h === undefined ? 'auto' : `${h}px`;
+}
+
+/** Re-lay out all of a panel's shells (panel dragged/resized, toggles
+ *  flipped, size-follow changed). */
+function relayoutPanel(panel, state) {
+    for (const [pop, att] of state.attachments) {
+        if (!pop.isConnected) {
+            detachPopup(state, pop);
+            continue;
+        }
+        layoutShell(panel, att);
+        applyShellSize(panel, state, att);
+    }
+}
+
+// A shell resize gesture is re-anchored to top/left for its duration (a
+// bottom/right-anchored box resizing feels inverted); on pointerup the snap
+// anchors are restored with the new pinned size.
+let resizePrepAtt = null;
+function prepShellResize(att, e) {
+    const r = att.shell.getBoundingClientRect();
+    if (e.clientX < r.right - 18 || e.clientY < r.bottom - 18) return; // not the corner
+    resizePrepAtt = att;
+    att.shell.style.left = `${r.left}px`;
+    att.shell.style.top = `${r.top}px`;
+    att.shell.style.right = 'auto';
+    att.shell.style.bottom = 'auto';
+}
+function endShellResize() {
+    if (!resizePrepAtt) return;
+    const att = resizePrepAtt;
+    resizePrepAtt = null;
+    for (const [id, state] of panelStates) {
+        for (const a of state.attachments.values()) {
+            if (a === att) {
+                const panel = document.getElementById(id);
+                if (panel) layoutShell(panel, att);
+                return;
+            }
+        }
+    }
+}
+
+/** Pin a user-driven shell resize (CSS resize doesn't mutate the style
+ *  attribute, so this runs from the shell's ResizeObserver). Content-driven
+ *  hugging changes are ignored — only pointer-driven resizes pin a size. */
+function adoptShellResize(pop) {
+    for (const [id, state] of panelStates) {
+        const att = state.attachments.get(pop);
+        if (!att) continue;
+        if (att !== resizePrepAtt && !isUserManipulating(att.shell)) return;
+        const r = att.shell.getBoundingClientRect();
+        if (r.width < 4 || r.height < 4) return;
+        att.width = r.width;
+        att.height = r.height;
+        att.shell.classList.add('ptr-w-fixed', 'ptr-h-fixed');
+        att.shell.style.width = `${att.width}px`;
+        att.shell.style.height = `${att.height}px`;
+        persistPopup(id, pop, att, { debounce: true });
+        return;
+    }
+}
+
+/** Watch an attached popup for hide/show cycles and user drags. The shell
+ *  does all positioning, so this is much simpler than before:
+ *  - hidden → hide the shell; shown again → re-glue the shell (extensions
+ *    respawn/re-anchor popups at will; inside the shell that's inert);
+ *  - a user dragging the popup via its OWN drag logic (inline left/top
+ *    writes while the pointer is on it) is mirrored onto the shell and
+ *    becomes the remembered manual placement;
+ *  - anything else (programmatic re-anchors, content swaps) is ignored —
+ *    the shell hugs and stays glued by itself. */
 function adoptPopupAdjustment(pop) {
     for (const [id, state] of panelStates) {
         const att = state.attachments.get(pop);
         if (!att) continue;
         const panel = document.getElementById(id);
         if (!panel) return;
+        // Extension re-parented the popup (DOM re-mount with the same
+        // element): stuff it back into its shell.
+        if (pop.isConnected && att.shell.isConnected && pop.parentElement !== att.shell) {
+            att.shell.appendChild(pop);
+        }
         const cs = getComputedStyle(pop);
         if (cs.display === 'none' || cs.visibility === 'hidden') {
-            // Closed/hidden: a zero rect is not a user adjustment.
             att.wasHidden = true;
+            if (att.shell.isConnected) att.shell.style.display = 'none';
             return;
         }
-        const pr = panel.getBoundingClientRect();
         if (att.wasHidden) {
             att.wasHidden = false;
-            markSelfWrite(pop);
-            pop.style.left = `${pr.left + att.offX}px`;
-            pop.style.top = `${pr.top + att.offY}px`;
-            pop.style.width = `${att.width}px`;
-            pop.style.height = `${att.height}px`;
+            att.shell.style.display = '';
+            layoutShell(panel, att);
+            applyShellSize(panel, state, att);
             return;
         }
-        const r = pop.getBoundingClientRect();
-        if (r.width < 4 || r.height < 4) return; // mid-transition, ignore
-        const posMatches = Math.abs(r.left - (pr.left + att.offX)) <= 2
-            && Math.abs(r.top - (pr.top + att.offY)) <= 2;
-        const sizeMatches = Math.abs(r.width - att.width) <= 2
-            && Math.abs(r.height - att.height) <= 2;
-        // Our own writes always land exactly on the recorded offset/size, so
-        // a full match means "nothing external happened" — no timing window
-        // needed. This lets post-open content reflows (which often arrive
-        // within the 60ms self-write window right after we placed the popup)
-        // still get adopted and re-glued instead of leaving a flush gap.
-        if (posMatches && sizeMatches) return;
-        if (isSelfWrite(pop)) return; // mid-drag frame noise
-        if (!posMatches) {
-            att.width = r.width;
-            att.height = r.height;
-            if (isUserManipulating(pop)) {
-                // Manual drag: the user owns this popup's spot now.
-                att.offX = r.left - pr.left;
-                att.offY = r.top - pr.top;
-                att.snapX = null;
-                att.snapY = null;
-            } else {
-                // Programmatic reposition (extension re-anchored a reused
-                // popup for new content): keep the remembered spot, re-glued
-                // for the new size — never let spawn coordinates overwrite
-                // the memory.
-                if (att.snapX === 'left') att.offX = 0;
-                else if (att.snapX === 'right') att.offX = pr.width - r.width;
-                if (att.snapY === 'top') att.offY = -r.height;
-                else if (att.snapY === 'bottom') att.offY = pr.height;
-                markSelfWrite(pop);
-                pop.style.left = `${pr.left + att.offX}px`;
-                pop.style.top = `${pr.top + att.offY}px`;
-            }
-            persistPopup(id, pop, att, { debounce: true });
-            return;
-        }
-        // posMatches is guaranteed here (the !posMatches branch returned),
-        // so a mismatch is a pure size change (content growth, CSS resize).
-        att.width = r.width;
-        att.height = r.height;
-        // Keep snapped edges flush despite the new size: top-snapped
-        // popups grow upward, right-snapped popups grow leftward.
-        if (att.snapY === 'top') {
-            att.offY = -r.height;
-            markSelfWrite(pop);
-            pop.style.top = `${pr.top + att.offY}px`;
-        }
-        if (att.snapX === 'right') {
-            att.offX = pr.width - r.width;
-            markSelfWrite(pop);
-            pop.style.left = `${pr.left + att.offX}px`;
-        }
+        if (isSelfWrite(pop) || !isUserManipulating(pop)) return;
+        const l = parseFloat(pop.style.left);
+        const t = parseFloat(pop.style.top);
+        if (!Number.isFinite(l) || !Number.isFinite(t)) return;
+        // Mirror the intended spot onto the shell; the popup's own writes
+        // stay inert (it's a static shell child).
+        const pr = panel.getBoundingClientRect();
+        att.offX = l - pr.left;
+        att.offY = t - pr.top;
+        att.snapX = null;
+        att.snapY = null;
+        markSelfWrite(pop);
+        pop.style.left = '';
+        pop.style.top = '';
+        layoutShell(panel, att);
         persistPopup(id, pop, att, { debounce: true });
         return;
     }
@@ -630,70 +673,50 @@ function maybeAttach(el) {
     const { panel, state, cur } = owner;
     const saved = el.id ? registry()[panel.id]?.popups?.[el.id] : null;
 
-    let offX, offY, width, height, snapX, snapY;
-    if (saved) {
-        // Remembered placement wins — the user put this popup there before.
-        ({ offX, offY, width, height } = saved);
-        snapX = saved.snapX ?? null;
-        snapY = saved.snapY ?? null;
-    } else {
-        // Default: snug against the panel per the 左右/上下 toggles. With a
-        // toggle off, keep the popup's appeared offset relative to the nearer
-        // anchor instead.
-        snapX = state.popupAlign === 'off' ? null : state.popupAlign;
-        snapY = state.popupSide === 'off' ? null : state.popupSide;
-        if (snapX === 'left') {
-            offX = 0;
-        } else if (snapX === 'right') {
-            offX = cur.width - popRect.width;
-        } else {
-            const anchorX = Math.abs(popRect.left - state.origLeft) < Math.abs(popRect.left - cur.left)
-                ? state.origLeft : cur.left;
-            offX = popRect.left - anchorX;
-        }
-        if (snapY) {
-            offY = snapY === 'top' ? -popRect.height : cur.height;
-            // Flip if the default side would fall off-screen.
-            const topPx = cur.top + offY;
-            if (topPx + popRect.height > window.innerHeight || topPx < 0) {
-                offY = snapY === 'top' ? cur.height : -popRect.height;
-                snapY = snapY === 'top' ? 'bottom' : 'top';
-            }
-        } else {
-            const anchorY = Math.abs(popRect.top - state.origTop) < Math.abs(popRect.top - cur.top)
-                ? state.origTop : cur.top;
-            offY = popRect.top - anchorY;
-        }
-    }
-
-    // Normalize to left/top so we can translate it during drags.
-    if (getComputedStyle(el).position !== 'fixed') el.style.position = 'fixed';
-    markSelfWrite(el);
-    el.style.left = `${cur.left + offX}px`;
-    el.style.top = `${cur.top + offY}px`;
-    el.style.right = 'auto';
-    el.style.bottom = 'auto';
-    if (width !== undefined) el.style.width = `${width}px`;
-    if (height !== undefined) el.style.height = `${height}px`;
-    // Popups are user-adjustable; adoptPopupAdjustment picks up their changes.
-    if (!el.style.resize) el.style.resize = 'both';
-    if (getComputedStyle(el).overflow === 'visible') el.style.overflow = 'auto';
-
     const att = {
-        offX, offY,
-        width: width ?? popRect.width,
-        height: height ?? popRect.height,
-        snapX, snapY,
+        shell: null,
+        offX: 0, offY: 0,
+        width: saved?.width,
+        height: saved?.height,
+        snapX: saved ? (saved.snapX ?? null) : (state.popupAlign === 'off' ? null : state.popupAlign),
+        snapY: saved ? (saved.snapY ?? null) : (state.popupSide === 'off' ? null : state.popupSide),
         wasHidden: false,
         ro: null,
     };
+    if (saved) {
+        att.offX = saved.offX;
+        att.offY = saved.offY;
+    } else {
+        // No snap on an axis → keep the popup's appeared offset relative to
+        // the nearer anchor. Flip the default side if it would fall off-screen.
+        const nearX = Math.abs(popRect.left - state.origLeft) < Math.abs(popRect.left - cur.left)
+            ? state.origLeft : cur.left;
+        const nearY = Math.abs(popRect.top - state.origTop) < Math.abs(popRect.top - cur.top)
+            ? state.origTop : cur.top;
+        att.offX = popRect.left - nearX;
+        att.offY = popRect.top - nearY;
+        if (att.snapY === 'top' && cur.top - popRect.height < 0) att.snapY = 'bottom';
+        else if (att.snapY === 'bottom' && cur.bottom + popRect.height > window.innerHeight) att.snapY = 'top';
+    }
+
+    // Wrap the popup in a shell: the shell is what we position (edge-anchored
+    // to the panel); the popup becomes a static child whose own position
+    // writes no longer affect layout.
+    const shell = document.createElement('div');
+    shell.className = 'ptr-pick-ui ptr-pop-shell';
+    if (getComputedStyle(el).zIndex !== 'auto') shell.style.zIndex = getComputedStyle(el).zIndex;
+    el.before(shell);
+    shell.appendChild(el);
+    el.classList.add('ptr-shelled');
+    att.shell = shell;
+
     state.attachments.set(el, att);
-    // CSS resize (resize:both) doesn't mutate the style attribute — a
-    // ResizeObserver is needed to adopt user resizes. Self-writes are
-    // filtered inside adoptPopupAdjustment.
-    att.ro = new ResizeObserver(() => adoptPopupAdjustment(el));
-    att.ro.observe(el);
-    applySizeFollow(panel, state);
+    // CSS resize on the shell doesn't mutate the style attribute — a
+    // ResizeObserver on the shell adopts user resizes.
+    att.ro = new ResizeObserver(() => adoptShellResize(el));
+    att.ro.observe(shell);
+    layoutShell(panel, att);
+    applyShellSize(panel, state, att);
 }
 
 function onPanelStyleChanged(panel) {
@@ -701,22 +724,9 @@ function onPanelStyleChanged(panel) {
     const state = panelStates.get(panel.id);
     if (!state) return;
     const r = panel.getBoundingClientRect();
-    const dx = r.left - state.lastLeft;
-    const dy = r.top - state.lastTop;
-    if (dx !== 0 || dy !== 0) {
-        for (const [pop, att] of state.attachments) {
-            if (!pop.isConnected) {
-                detachPopup(state, pop);
-                continue;
-            }
-            markSelfWrite(pop);
-            pop.style.left = `${r.left + att.offX}px`;
-            pop.style.top = `${r.top + att.offY}px`;
-        }
-        state.lastLeft = r.left;
-        state.lastTop = r.top;
-    }
-    applySizeFollow(panel, state);
+    state.lastLeft = r.left;
+    state.lastTop = r.top;
+    relayoutPanel(panel, state);
 }
 
 // --- Panel wiring ---------------------------------------------------------------
@@ -840,6 +850,7 @@ function wirePanel(el) {
     const state = {
         origLeft: rect.left, origTop: rect.top,
         lastLeft: rect.left, lastTop: rect.top,
+        lastW: rect.width, lastH: rect.height,
         followPopup: entry.followPopup,
         followW: entry.followW, followH: entry.followH,
         handleSide: entry.handleSide,
@@ -857,11 +868,15 @@ function wirePanel(el) {
     state.styleObserver = new MutationObserver(() => onPanelStyleChanged(el));
     state.styleObserver.observe(el, { attributes: true, attributeFilter: ['style'] });
     // Bottom-glued handle must track panel size (CSS resize doesn't mutate the
-    // style attribute, so a ResizeObserver is needed in addition).
+    // style attribute, so a ResizeObserver is needed in addition); shells
+    // anchored to the panel's bottom/right edge ride along on size changes.
     state.resizeObserver = new ResizeObserver(() => {
         glueHandle(el);
-        applySizeFollow(el, state);
-        keepSnappedFlush(el, state);
+        const r = el.getBoundingClientRect();
+        if (r.width === state.lastW && r.height === state.lastH) return;
+        state.lastW = r.width;
+        state.lastH = r.height;
+        relayoutPanel(el, state);
     });
     state.resizeObserver.observe(el);
     // Absolute handle scrolls with panel content — keep it glued.
@@ -878,8 +893,8 @@ function wirePanel(el) {
     };
     el.addEventListener('pointerdown', state.onPointerDown);
     // After any interaction settles (resize drag end etc.), re-assert the
-    // size follow so attached popups can't be left behind.
-    state.onPointerUp = () => applySizeFollow(el, state);
+    // shell layout so attached popups can't be left behind.
+    state.onPointerUp = () => relayoutPanel(el, state);
     el.addEventListener('pointerup', state.onPointerUp);
 
     const headerEl = handle ?? document.getElementById(`${el.id}header`);

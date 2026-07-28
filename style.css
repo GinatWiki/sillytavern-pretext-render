@@ -182,6 +182,38 @@
     color: #fff;
 }
 
+/* Popup shell — the box we actually position. Edge-anchored to the panel
+   (bottom edge for 上, right edge for 右), so content growth and swapped-in
+   popups re-glue themselves with no JS. User-resizable; the popup inside is
+   a static child whose own position writes are inert. */
+.ptr-pop-shell {
+    position: fixed;
+    display: flex;
+    flex-direction: column;
+    resize: both;
+    overflow: auto;
+    overscroll-behavior: contain;
+}
+
+.ptr-shelled {
+    position: static !important;
+    inset: auto !important;
+    transform: none !important;
+    margin: 0 !important;
+    flex: 0 0 auto;
+}
+
+/* shell width/height pinned (等宽 follow or user resize) → popup fills it */
+.ptr-pop-shell.ptr-w-fixed > .ptr-shelled {
+    width: 100% !important;
+    box-sizing: border-box !important;
+}
+
+.ptr-pop-shell.ptr-h-fixed > .ptr-shelled {
+    height: 100% !important;
+    box-sizing: border-box !important;
+}
+
 /* Picker mode */
 body.ptr-picker-active {
     cursor: crosshair;
