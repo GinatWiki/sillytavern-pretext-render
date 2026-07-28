@@ -65,6 +65,29 @@ const selfWriteAt = new Map();
 function markSelfWrite(el) { selfWriteAt.set(el, performance.now()); }
 function isSelfWrite(el) { return performance.now() - (selfWriteAt.get(el) ?? -1e9) < 60; }
 
+// Direct-manipulation tracker for attached popups. A popup POSITION change is
+// only a user drag when the pointer is down on that popup (or was released
+// <300ms ago). Extensions re-anchor reused popups at their spawn coordinates
+// when swapping content ("顶掉") — without this, those programmatic jumps get
+// adopted as user placements, wiping the remembered spot and snap flags.
+let popupPtr = { el: null, until: 0 };
+function onPopupPtrDown(e) {
+    for (const [, state] of panelStates) {
+        for (const pop of state.attachments.keys()) {
+            if (pop === e.target || pop.contains(e.target)) {
+                popupPtr = { el: pop, until: Infinity };
+                return;
+            }
+        }
+    }
+}
+function onPopupPtrUp() {
+    if (popupPtr.el) popupPtr.until = performance.now() + 300;
+}
+function isUserManipulating(pop) {
+    return popupPtr.el === pop && performance.now() < popupPtr.until;
+}
+
 let settings = null;
 let enabled = false;
 let pickerActive = false;
@@ -446,13 +469,16 @@ function keepSnappedFlush(panel, state) {
 /** Adopt a user's manual move/resize of an attached popup: the new offset and
  *  size become the remembered placement for future panel drags and (for
  *  popups with an id) across sessions. Runs from the style-attribute observer
- *  and the per-popup ResizeObserver, so our own writes must be filtered out
- *  first (isSelfWrite). A popup that was HIDDEN and reappears is snapped back
- *  to its remembered placement instead: extensions respawn popups at their
- *  original coordinates, which must not overwrite the memory.
- *  A manual MOVE drops the popup's snap flags (the user owns the spot now);
- *  a mere SIZE change (content growth, CSS resize) keeps them — snapped edges
- *  are re-glued so the popup stays flush with the panel. */
+ *  and the per-popup ResizeObserver. Filters:
+ *  - full offset/size match = our own write, ignored (no timing window
+ *    needed); the 60ms isSelfWrite window only covers mid-drag frame noise;
+ *  - a HIDDEN popup's zero rect is not an adjustment; on reappear it is
+ *    snapped back to its remembered placement (extensions respawn popups at
+ *    their original coordinates, which must not overwrite the memory);
+ *  - a POSITION change counts as a user drag only while the pointer is on
+ *    the popup (isUserManipulating); otherwise it's a programmatic re-anchor
+ *    (extension swapped a reused popup's content) — we keep the remembered
+ *    spot, adopt the new size, and re-glue snapped edges. */
 function adoptPopupAdjustment(pop) {
     for (const [id, state] of panelStates) {
         const att = state.attachments.get(pop);
@@ -489,12 +515,27 @@ function adoptPopupAdjustment(pop) {
         if (posMatches && sizeMatches) return;
         if (isSelfWrite(pop)) return; // mid-drag frame noise
         if (!posMatches) {
-            att.offX = r.left - pr.left;
-            att.offY = r.top - pr.top;
             att.width = r.width;
             att.height = r.height;
-            att.snapX = null;
-            att.snapY = null;
+            if (isUserManipulating(pop)) {
+                // Manual drag: the user owns this popup's spot now.
+                att.offX = r.left - pr.left;
+                att.offY = r.top - pr.top;
+                att.snapX = null;
+                att.snapY = null;
+            } else {
+                // Programmatic reposition (extension re-anchored a reused
+                // popup for new content): keep the remembered spot, re-glued
+                // for the new size — never let spawn coordinates overwrite
+                // the memory.
+                if (att.snapX === 'left') att.offX = 0;
+                else if (att.snapX === 'right') att.offX = pr.width - r.width;
+                if (att.snapY === 'top') att.offY = -r.height;
+                else if (att.snapY === 'bottom') att.offY = pr.height;
+                markSelfWrite(pop);
+                pop.style.left = `${pr.left + att.offX}px`;
+                pop.style.top = `${pr.top + att.offY}px`;
+            }
             persistPopup(id, pop, att, { debounce: true });
             return;
         }
@@ -1191,6 +1232,9 @@ export function enable() {
         if (el) wirePanel(el);
     }
     startObserver();
+    document.addEventListener('pointerdown', onPopupPtrDown, true);
+    document.addEventListener('pointerup', onPopupPtrUp, true);
+    document.addEventListener('pointercancel', onPopupPtrUp, true);
     eventSource.on(event_types.MOVABLE_PANELS_RESET, onNativeReset);
 }
 
@@ -1200,6 +1244,10 @@ export function disable() {
     exitPicker();
     // ST's EventEmitter has no .off(); removeListener is its equivalent.
     eventSource.removeListener(event_types.MOVABLE_PANELS_RESET, onNativeReset);
+    document.removeEventListener('pointerdown', onPopupPtrDown, true);
+    document.removeEventListener('pointerup', onPopupPtrUp, true);
+    document.removeEventListener('pointercancel', onPopupPtrUp, true);
+    popupPtr = { el: null, until: 0 };
     domObserver?.disconnect();
     domObserver = null;
     for (const id of Object.keys(registry())) {

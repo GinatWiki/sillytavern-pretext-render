@@ -115,6 +115,11 @@
   弹窗持久化到 movingPanelsList[panelId].popups[popupId]（含 snapX/snapY）跨会话记忆；
   弹窗隐藏（display:none）时不收养，重新显示时按记忆位置回贴（wasHidden），防止扩展
   重开弹窗的出生坐标覆盖记忆
+- **坑：扩展复用弹窗元素换内容（"顶掉"）会把弹窗重锚定回出生坐标**——不关闭不重开，
+  wasHidden 分支拦不到，位置变化被当成用户拖动 → 记忆被出生坐标覆盖、snap 清除、不再
+  贴齐。修复：document 级 pointerdown/up 追踪（capture），位置变化仅当指针正按在该弹窗
+  上（或松开 300ms 内）才算用户拖动；否则视为程序化重锚——收养新尺寸、保留记忆位置、
+  按 snap 标记重新贴齐
 - [归] 按钮 dockPanel：静态来源面板 unfloatPanel 恢复文档流 + 清 right/bottom/height；
   原本就定位的面板清内联几何交还样式表；同时删除 movingUIState 记录，重载不还原
 - 原生重置兼容：监听 `MOVABLE_PANELS_RESET`（='movable_panels_reset'，events.js 定义、
