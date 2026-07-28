@@ -90,8 +90,16 @@
   `backdrop-filter: blur(var(--SmartThemeBlurStrength))`
 - [高] 按钮已移除（无适用场景）；state.followH 逻辑保留但不再有入口
 - 弹窗跟随：pointerdown 后 350ms + body 级 MutationObserver 扫描新出现的 fixed/absolute
-  弹窗，按到面板原锚点/当前位置的曼哈顿距离 ≤260px 判定归属，重锚定偏移量后随拖动平移；
-  手柄 [弹] 总开关（默认开）、[宽][高] 尺寸跟随，均持久化到 movingPanelsList
+  弹窗，按到面板原锚点/当前位置的曼哈顿距离 ≤260px 判定归属；默认紧贴面板（左对齐 +
+  上/下方贴合，越界自动翻面），随后随拖动平移；手柄 [弹] 总开关（默认开）、[宽] 宽度
+  跟随、[左右] 左对齐开关（默认开）、[上下] 上方/下方切换（默认下方），均持久化到
+  movingPanelsList
+- 弹窗自由调节与记忆：附着弹窗规范化 position:fixed + resize:both；style/class 属性
+  观察器 + 每弹窗 ResizeObserver 把用户拖动/缩放"收养"为新偏移与尺寸（markSelfWrite
+  60ms 窗口防止误收养我们自己的写入；收养路径 saveSettings 走 800ms 防抖）；有 id 的
+  弹窗持久化到 movingPanelsList[panelId].popups[popupId] 跨会话记忆；弹窗隐藏
+  （display:none）时不收养，重新显示时按记忆位置回贴（wasHidden），防止扩展重开弹窗
+  的出生坐标覆盖记忆
 - [归] 按钮 dockPanel：静态来源面板 unfloatPanel 恢复文档流 + 清 right/bottom/height；
   原本就定位的面板清内联几何交还样式表；同时删除 movingUIState 记录，重载不还原
 - 原生重置兼容：监听 `MOVABLE_PANELS_RESET`（='movable_panels_reset'，events.js 定义、
