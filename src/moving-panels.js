@@ -735,20 +735,26 @@ function onPanelStyleChanged(panel) {
     const state = panelStates.get(panel.id);
     if (!state) return;
     // Detect external position reset: if we floated this panel but its
-    // position is no longer fixed/absolute, something reset it (extension
-    // button handler, ST internal code). Re-float from last known coords
-    // so the panel stays where the user placed it instead of snapping back.
+    // position is no longer fixed/absolute, something reset it. In that
+    // case re-float IN PLACE using the panel's CURRENT rect (not lastLeft/
+    // lastTop which may be stale after the extension's own re-layout).
+    // This prevents the panel from jumping back to an old position.
     const cs = getComputedStyle(panel);
     if ((cs.position === 'static' || cs.position === 'relative') &&
         panel.dataset.ptrOrigPos !== undefined &&
         !state.needsRefloat &&
         panel.dataset.dragged !== 'true') {
+        const cur = panel.getBoundingClientRect();
         Object.assign(panel.style, {
             position: 'fixed',
-            left: state.lastLeft + 'px',
-            top: state.lastTop + 'px',
+            left: cur.left + 'px',
+            top: cur.top + 'px',
             margin: '0',
         });
+        // Pin width/height from the live rect so the panel doesn't collapse
+        const w = cur.width, h = cur.height;
+        if (w > 0) panel.style.width = w + 'px';
+        if (h > 0) panel.style.height = h + 'px';
         normalizeGeometry(panel);
     }
     const r = panel.getBoundingClientRect();
@@ -921,11 +927,19 @@ function onWindowResize() {
             const el = document.getElementById(id);
             if (!el) continue;
             const r = el.getBoundingClientRect();
-            if (r.right > window.innerWidth) {
-                el.style.left = Math.max(0, window.innerWidth - r.width - 4) + "px";
+            // Only nudge if the panel's top-left corner is off-screen.
+            // A panel wider than the viewport may extend past the right
+            // edge by design ? don't force it back in.
+            if (r.left < 0) {
+                el.style.left = '0px';
+            } else if (r.left >= window.innerWidth) {
+                // Entire panel pushed off the right edge
+                el.style.left = Math.max(0, window.innerWidth - 40) + 'px';
             }
-            if (r.bottom > window.innerHeight) {
-                el.style.top = Math.max(0, window.innerHeight - r.height - 4) + "px";
+            if (r.top < 0) {
+                el.style.top = '0px';
+            } else if (r.top >= window.innerHeight) {
+                el.style.top = Math.max(0, window.innerHeight - 40) + 'px';
             }
             const r2 = el.getBoundingClientRect();
             state.lastLeft = r2.left;
