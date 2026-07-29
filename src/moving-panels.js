@@ -732,7 +732,7 @@ function maybeAttach(el) {
 
 function onPanelStyleChanged(panel) {
     const state0 = panelStates.get(panel.id);
-    console.log('[ptr-debug] onPanelStyleChanged fired', {
+    console.log('[pretext] onPanelStyleChanged fired', {
         id: panel.id,
         hasState: !!state0,
         selfWriteCount: state0?.selfWriteCount,
@@ -787,7 +787,7 @@ function onPanelStyleChanged(panel) {
         if (Math.abs(curL - state.userPos.left) > 2 ||
             Math.abs(curT - state.userPos.top) > 2 ||
             Math.abs(curW - state.userPos.width) > 2) {
-            console.log('[ptr-debug] external style change detected', {
+            console.log('[pretext] external style change detected', {
                 id: panel.id,
                 cur: { L: curL, T: curT, W: curW },
                 userPos: { ...state.userPos },
@@ -809,7 +809,7 @@ function onPanelStyleChanged(panel) {
                 if (st.userPos.height) {
                     patch.height = st.userPos.height + 'px';
                 }
-                console.log('[ptr-debug] restoring to userPos', { patch, currentStyle: panel.getAttribute('style') });
+                console.log('[pretext] restoring to userPos', { patch, currentStyle: panel.getAttribute('style') });
                 st.selfWriteCount = 3;
                 Object.assign(panel.style, patch);
                 st.restoreTimer = null;
@@ -981,7 +981,7 @@ function dragWire(el) {
             width: parseFloat(el.style.width) || r2.width,
             height: parseFloat(el.style.height) || 0,
         };
-        console.log('[ptr-debug] dragWire onUp saving userPos', userPos);
+        console.log('[pretext] dragWire onUp saving userPos', userPos);
         if (entry) {
             entry.pos = { left: userPos.left + 'px', top: userPos.top + 'px', width: userPos.width + 'px', height: userPos.height ? userPos.height + 'px' : '' };
             saveSettings();
