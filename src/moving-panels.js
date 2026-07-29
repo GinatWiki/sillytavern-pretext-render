@@ -917,7 +917,8 @@ function dragWire(el) {
         if (e.clientX > r.right - 18 && e.clientY > r.bottom - 18) return;
         e.preventDefault();
         dragging = true;
-        state.dragging = true;
+        const st = panelStates.get(el.id);
+        if (st) st.dragging = true;
         el.dataset.dragged = "true";
         sx = e.clientX; sy = e.clientY;
         const cs = getComputedStyle(el);
@@ -939,11 +940,15 @@ function dragWire(el) {
         el.style.margin = "0";
         el.style.width = sw + "px";
         el.style.height = sh + "px";
+        // Mark as self-write so onPanelStyleChanged doesn't try to restore
+        const st3 = panelStates.get(el.id);
+        if (st3) st3.selfWriting = true;
     }
     function onUp() {
         if (!dragging) return;
         dragging = false;
-        state.dragging = false;
+        const st = panelStates.get(el.id);
+        if (st) st.dragging = false;
         el.dataset.dragged = "false";
         document.removeEventListener("mousemove", onMove);
         document.removeEventListener("mouseup", onUp);
@@ -959,13 +964,14 @@ function dragWire(el) {
             entry.pos = { left: userPos.left + 'px', top: userPos.top + 'px', width: userPos.width + 'px', height: userPos.height ? userPos.height + 'px' : '' };
             saveSettings();
         }
-        if (state) {
-            state.userPos = userPos;
-            state.lastLeft = r2.left;
-            state.lastTop = r2.top;
-            state.lastW = r2.width;
-            state.lastH = r2.height;
-            relayoutPanel(el, state);
+        const st2 = panelStates.get(el.id);
+        if (st2) {
+            st2.userPos = userPos;
+            st2.lastLeft = r2.left;
+            st2.lastTop = r2.top;
+            st2.lastW = r2.width;
+            st2.lastH = r2.height;
+            relayoutPanel(el, st2);
         }
     }
 }
