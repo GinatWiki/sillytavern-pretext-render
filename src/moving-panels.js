@@ -1,10 +1,10 @@
 // Moving panels — extend ST's native MovingUI to arbitrary sub-panels.
 //
 // Native MovingUI (RossAscends-mods.js dragElement) only wires 7 hardcoded
-// ids. This module adds an F12-style picker: click any element with an id
-// (including panels created by OTHER extensions) to make it draggable +
-// resizable. We reuse the native dragElement, so positions/sizes persist
-// into power_user.movingUIState and ST restores them on load.
+// ids and depends on ST's MovingUI toggle. This module is FULLY INDEPENDENT:
+// it uses its own drag implementation and persists positions to its own
+// registry ? no ST MovingUI toggle, no movingUIState, no resetMovablePanels
+// interference. The two systems coexist without touching each other.
 //
 // On top of plain dragging this module provides:
 // - an in-panel grip tab (top/bottom switchable, keeps clear of the
@@ -21,7 +21,6 @@
 //   panels vanish; they return to the document flow and re-float on next drag
 
 import { eventSource, event_types, saveSettingsDebounced } from '../../../../../script.js';
-import { dragElement } from '../../../../RossAscends-mods.js';
 import { power_user } from '../../../../power-user.js';
 import { saveSettings } from './settings.js';
 
@@ -289,10 +288,8 @@ function dockPanel(panel) {
             panel.style[p] = '';
         }
     }
-    if (power_user.movingUIState?.[panel.id]) {
-        delete power_user.movingUIState[panel.id];
-        saveSettingsDebounced();
-    }
+    const entry = registry()[panel.id];
+    if (entry?.pos) { delete entry.pos; saveSettings(); }
     const r = panel.getBoundingClientRect();
     state.origLeft = state.lastLeft = r.left;
     state.origTop = state.lastTop = r.top;
@@ -592,9 +589,9 @@ function adoptPopupAdjustment(pop) {
         }
         if (isSelfWrite(pop)) return;
         // Adopt only genuine drags: the pointer is currently HELD on the
-        // popup (any drag logic), or ST's dragElement mid-drag flag is set.
-        // Writes in the post-pointerup tail with no active drag are
-        // programmatic re-anchors (content-swap respawn) - never adopt those.
+        // popup, or the panel's drag mid-drag flag is set. Writes in the
+        // post-pointerup tail with no active drag are programmatic re-anchors
+        // (content-swap respawn) ? never adopt those.
         const heldByPointer = popupPtr.el === pop && popupPtr.until === Infinity;
         const stDragging = pop.dataset.dragged === 'true';
         if (!heldByPointer && !stDragging) return;
@@ -762,13 +759,7 @@ function onPanelStyleChanged(panel) {
 
 // --- Panel wiring ---------------------------------------------------------------
 
-function ensureMovingUiOn() {
-    if (power_user.movingUI === true) return;
-    power_user.movingUI = true;
-    $('body').toggleClass('movingUI', true);
-    saveSettingsDebounced();
-    console.log('[pretext-render] moving-panels: enabled ST MovingUI');
-}
+function ensureMovingUiOn() {}
 
 /** Float a non-fixed/absolute panel in place so left/top drags work.
  *  Original inline styles are recorded for restoration. Returns the rect. */
@@ -801,12 +792,10 @@ function unfloatPanel(el) {
     // Keep the dataset entry: a later drag re-floats from it.
 }
 
-/** ST persists right/bottom (alongside top/left) into movingUIState and its
- *  restore applies the whole blob inline. With an unpinned height/width the
- *  box is over-constrained: top+bottom both win, so dragElement's top writes
- *  STRETCH the panel vertically instead of moving it. Re-anchor any
- *  over-constrained axis to top-left by pinning its size from the live rect
- *  and clearing the opposite edge. Runs at wire time and before every drag. */
+/** A panel with both top+bottom (or left+right) set is over-constrained:
+ *  the browser stretches it instead of letting left/top move it. Pin the
+ *  size from the live rect and clear the opposite edge. Runs at wire time
+ *  and before every drag. */
 function normalizeGeometry(el) {
     const cs = getComputedStyle(el);
     if (cs.position !== 'fixed' && cs.position !== 'absolute') return;
@@ -825,13 +814,12 @@ function normalizeGeometry(el) {
     }
 }
 
-/** Apply the remembered movingUIState entry (if any) and normalize geometry.
- *  No-op while the user is dragging or the element left the DOM. */
+/** Apply a saved position from our own registry. No-op while dragging. */
 function applySavedPosition(el) {
     if (!el.isConnected || el.dataset.dragged === 'true') return;
-    const saved = power_user.movingUIState?.[el.id];
-    if (!saved) return;
-    $(el).css(saved);
+    const entry = registry()[el.id];
+    if (!entry?.pos) return;
+    $(el).css(entry.pos);
     normalizeGeometry(el);
 }
 
@@ -847,16 +835,14 @@ function ensureHandleAnchor(panel) {
     panel.style.position = 'relative';
 }
 
-/** After ST's native reset (or a dock) unfloated this panel, the next grip
- *  mousedown re-floats it BEFORE dragElement's own handler reads offsets
- *  (capture phase runs before dragElement's bubble-phase jQuery handler). */
+/** After a dock unfloated this panel, the next grip mousedown re-floats it
+ *  before dragWire's own handler reads offsets (capture phase runs first). */
 function bindRefloat(el, headerEl) {
     headerEl?.addEventListener('mousedown', () => {
         const st = panelStates.get(el.id);
-        // Stale right/bottom (from ST movingUIState restore or a prior
-        // resize) over-constrains the box: top+bottom+height makes
-        // dragElement's top writes STRETCH the panel instead of moving it.
-        // Normalize on EVERY mousedown, before dragElement reads offsets.
+        // Stale right/bottom over-constrains the box (top+bottom+height
+        // makes left/top writes stretch instead of move). Normalize on
+        // EVERY mousedown, before dragWire reads offsets.
         normalizeGeometry(el);
         if (st?.needsRefloat) {
             st.needsRefloat = false;
@@ -866,6 +852,87 @@ function bindRefloat(el, headerEl) {
         const r = el.getBoundingClientRect();
         if (st) { st.lastLeft = r.left; st.lastTop = r.top; }
     }, true);
+}
+
+
+// --- Self-contained drag (no ST dragElement dependency) -----------------------
+
+function dragWire(el) {
+    const headerEl = document.getElementById(el.id + "header");
+    if (!headerEl) return;
+    let dragging = false;
+    let sx, sy, sl, st0, sw, sh;
+    headerEl.addEventListener("mousedown", e => {
+        if (e.target.closest(".ptr-follow, .ptr-dock, .ptr-side")) return;
+        const r = el.getBoundingClientRect();
+        if (e.clientX > r.right - 18 && e.clientY > r.bottom - 18) return;
+        e.preventDefault();
+        dragging = true;
+        el.dataset.dragged = "true";
+        sx = e.clientX; sy = e.clientY;
+        const cs = getComputedStyle(el);
+        sl = parseFloat(cs.left) || r.left;
+        st0 = parseFloat(cs.top) || r.top;
+        sw = r.width; sh = r.height;
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
+    });
+    function onMove(e) {
+        if (!dragging) return;
+        e.preventDefault();
+        let nx = sl + (e.clientX - sx);
+        let ny = st0 + (e.clientY - sy);
+        nx = Math.max(0, Math.min(nx, window.innerWidth - 20));
+        ny = Math.max(0, Math.min(ny, window.innerHeight - 20));
+        el.style.left = nx + "px";
+        el.style.top = ny + "px";
+        el.style.margin = "0";
+        el.style.width = sw + "px";
+        el.style.height = sh + "px";
+    }
+    function onUp() {
+        if (!dragging) return;
+        dragging = false;
+        el.dataset.dragged = "false";
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        const entry = registry()[el.id];
+        if (entry) {
+            entry.pos = { left: el.style.left, top: el.style.top, width: el.style.width, height: el.style.height };
+            saveSettings();
+        }
+        const state = panelStates.get(el.id);
+        if (state) {
+            const r2 = el.getBoundingClientRect();
+            state.lastLeft = r2.left;
+            state.lastTop = r2.top;
+            state.lastW = r2.width;
+            state.lastH = r2.height;
+            relayoutPanel(el, state);
+        }
+    }
+}
+
+let resizeTimer = null;
+function onWindowResize() {
+    if (resizeTimer) clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+        for (const [id, state] of panelStates) {
+            const el = document.getElementById(id);
+            if (!el) continue;
+            const r = el.getBoundingClientRect();
+            if (r.right > window.innerWidth) {
+                el.style.left = Math.max(0, window.innerWidth - r.width - 4) + "px";
+            }
+            if (r.bottom > window.innerHeight) {
+                el.style.top = Math.max(0, window.innerHeight - r.height - 4) + "px";
+            }
+            const r2 = el.getBoundingClientRect();
+            state.lastLeft = r2.left;
+            state.lastTop = r2.top;
+            relayoutPanel(el, state);
+        }
+    }, 150);
 }
 
 function wirePanel(el) {
@@ -889,11 +956,10 @@ function wirePanel(el) {
         el.style.overflow = 'auto';
     }
 
-    dragElement($(el));
+    dragWire(el);
 
     // Re-apply a previously saved position (ST's restore ran before this
-    // panel existed in the DOM). Our module can execute before getSettings()
-    // populates movingUIState, and owning extensions may re-anchor their
+    // panel existed in the DOM). Owning extensions may re-anchor their
     // panel right after wiring; the deferred passes re-assert the remembered
     // spot once everything settles.
     applySavedPosition(el);
@@ -1015,13 +1081,10 @@ function unwirePanel(el, { keepState = true, keepRegistry = false } = {}) {
     clearSidePadding(el);
     delete el.dataset.ptrWired;
     if (!keepRegistry) delete registry()[el.id];
-    if (!keepState && power_user.movingUIState) {
-        delete power_user.movingUIState[el.id];
-        saveSettingsDebounced();
-    }
+    // Positions managed in our own registry; no ST state to clean.
     saveSettings();
-    // Note: native dragElement's own listeners stay attached but are inert
-    // without a drag-grabber header / CSS resize.
+    // Our dragWire listeners are on the header element which gets removed
+    // above (injectedHeader case), so no manual cleanup needed.
 }
 
 // --- Picker mode (F12-style: hover -> click -> confirm) ----------------------
@@ -1240,44 +1303,10 @@ function startObserver() {
 
 // --- Native reset recovery ------------------------------------------------------
 // ST's resetMovablePanels clears inline top/left/right/bottom/height/width/margin
-// on every [data-dragged] element and wipes power_user.movingUIState. For panels
+// (this section describes ST's behavior for reference; our panels are unaffected
 // we floated from static flow that leaves position:fixed with no coordinates —
 // they collapse or fly off-screen ("组件消失"). Restore their in-flow layout and
-// re-float on the next drag instead.
-/** Last word on panel positions: APP_READY fires after the entire init
- *  chain (settings load, ST's own movingUIState restore, other extensions'
- *  startup layouts), so re-asserting here undoes any startup clobbering. */
-function onAppReadyRestore() {
-    for (const [id] of panelStates) {
-        const el = document.getElementById(id);
-        if (el) applySavedPosition(el);
-    }
-}
-
-function onNativeReset() {
-    let recovered = 0;
-    for (const [id, state] of panelStates) {
-        const el = document.getElementById(id);
-        if (!el) continue;
-        clearAttachments(state); // anchors are stale after a reset
-        if (el.dataset.ptrOrigPos !== undefined) {
-            unfloatPanel(el);
-            ensureHandleAnchor(el);
-            state.needsRefloat = true;
-            recovered++;
-        }
-        // Re-anchor to wherever the panel ended up.
-        const r = el.getBoundingClientRect();
-        state.origLeft = state.lastLeft = r.left;
-        state.origTop = state.lastTop = r.top;
-        glueHandle(el);
-    }
-    if (recovered) {
-        toastr.info('面板位置已重置；再次拖动手柄将重新悬浮定位', 'Pretext 渲染增强');
-    }
-}
-
-// --- Settings extras UI -------------------------------------------------------
+// re-float on the next drag instead.// --- Settings extras UI -------------------------------------------------------
 
 function renderExtras() {
     if (!settingsRoot) return;
@@ -1335,8 +1364,7 @@ export function enable() {
     document.addEventListener('pointerdown', onPopupPtrDown, true);
     document.addEventListener('pointerup', onPopupPtrUp, true);
     document.addEventListener('pointercancel', onPopupPtrUp, true);
-    eventSource.on(event_types.MOVABLE_PANELS_RESET, onNativeReset);
-    eventSource.on(event_types.APP_READY, onAppReadyRestore);
+    window.addEventListener('resize', onWindowResize);
 }
 
 export function disable() {
@@ -1344,8 +1372,7 @@ export function disable() {
     enabled = false;
     exitPicker();
     // ST's EventEmitter has no .off(); removeListener is its equivalent.
-    eventSource.removeListener(event_types.MOVABLE_PANELS_RESET, onNativeReset);
-    eventSource.removeListener(event_types.APP_READY, onAppReadyRestore);
+    window.removeEventListener('resize', onWindowResize);
     document.removeEventListener('pointerdown', onPopupPtrDown, true);
     document.removeEventListener('pointerup', onPopupPtrUp, true);
     document.removeEventListener('pointercancel', onPopupPtrUp, true);
