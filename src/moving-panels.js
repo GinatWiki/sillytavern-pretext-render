@@ -731,6 +731,15 @@ function maybeAttach(el) {
 }
 
 function onPanelStyleChanged(panel) {
+    const state0 = panelStates.get(panel.id);
+    console.log('[ptr-debug] onPanelStyleChanged fired', {
+        id: panel.id,
+        hasState: !!state0,
+        selfWriteCount: state0?.selfWriteCount,
+        dragging: state0?.dragging,
+        hasUserPos: !!state0?.userPos,
+        currentStyle: panel.getAttribute('style')?.substring(0, 120),
+    });
     glueHandle(panel);
     const state = panelStates.get(panel.id);
     if (!state) return;
