@@ -1,4 +1,4 @@
-// Moving panels — extend ST's native MovingUI to arbitrary sub-panels.
+﻿// Moving panels — extend ST's native MovingUI to arbitrary sub-panels.
 //
 // Native MovingUI (RossAscends-mods.js dragElement) only wires 7 hardcoded
 // ids and depends on ST's MovingUI toggle. This module is FULLY INDEPENDENT:
@@ -1117,8 +1117,18 @@ function wirePanel(el) {
         popups: prev?.popups ?? {},
         pos: prev?.pos,
     };
+    // Only persist if the entry actually changed (new panel or fields differ).
+    // Avoiding redundant saveSettings() calls prevents a feedback loop:
+    // saveSettings -> settings_updated -> owning ext re-renders -> re-wire -> saveSettings ...
+    const prevJson = prev ? JSON.stringify(prev) : '';
+    const entryJson = JSON.stringify(entry);
     registry()[el.id] = entry;
-    saveSettings();
+    if (prevJson !== entryJson) {
+        console.log('[pretext] wirePanel registry set (changed)', { id: el.id, hasPos: !!entry.pos, prevHadPos: !!prev?.pos });
+        saveSettings();
+    } else {
+        console.log('[pretext] wirePanel registry set (unchanged, skip save)', { id: el.id, hasPos: !!entry.pos });
+    }
 
     // The injected bar is full-width; give the panel padding on that side so
     // the bar overlays only the padding strip, never content.
