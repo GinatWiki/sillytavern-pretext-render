@@ -778,6 +778,14 @@ function onPanelStyleChanged(panel) {
         if (Math.abs(curL - state.userPos.left) > 2 ||
             Math.abs(curT - state.userPos.top) > 2 ||
             Math.abs(curW - state.userPos.width) > 2) {
+            console.log('[ptr-debug] external style change detected', {
+                id: panel.id,
+                cur: { L: curL, T: curT, W: curW },
+                userPos: { ...state.userPos },
+                dragging: state.dragging,
+                dragged: panel.dataset.dragged,
+                selfWriteCount: state.selfWriteCount,
+            });
             // Debounce: only restore once per burst of external writes
             if (state.restoreTimer) clearTimeout(state.restoreTimer);
             state.restoreTimer = setTimeout(() => {
@@ -792,6 +800,7 @@ function onPanelStyleChanged(panel) {
                 if (st.userPos.height) {
                     patch.height = st.userPos.height + 'px';
                 }
+                console.log('[ptr-debug] restoring to userPos', { patch, currentStyle: panel.getAttribute('style') });
                 st.selfWriteCount = 3;
                 Object.assign(panel.style, patch);
                 st.restoreTimer = null;
@@ -963,6 +972,7 @@ function dragWire(el) {
             width: parseFloat(el.style.width) || r2.width,
             height: parseFloat(el.style.height) || 0,
         };
+        console.log('[ptr-debug] dragWire onUp saving userPos', userPos);
         if (entry) {
             entry.pos = { left: userPos.left + 'px', top: userPos.top + 'px', width: userPos.width + 'px', height: userPos.height ? userPos.height + 'px' : '' };
             saveSettings();
