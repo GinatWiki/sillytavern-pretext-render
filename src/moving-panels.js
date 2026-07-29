@@ -888,10 +888,10 @@ function normalizeGeometry(el) {
 function applySavedPosition(el) {
     if (!el.isConnected || el.dataset.dragged === 'true') return;
     const entry = registry()[el.id];
+    console.log('[pretext] applySavedPosition', { id: el.id, hasPos: !!entry?.pos, pos: entry?.pos });
     if (!entry?.pos) return;
     $(el).css(entry.pos);
     normalizeGeometry(el);
-}
 
 /** A static panel can't contain its absolute handle (the handle would anchor
  *  to the nearest positioned ancestor, i.e. usually the viewport corner).
@@ -1029,6 +1029,7 @@ function onWindowResize() {
 }
 
 function wirePanel(el) {
+    console.log('[pretext] wirePanel called', { id: el?.id, ptrWired: el?.dataset?.ptrWired, hasOrigPos: el?.dataset?.ptrOrigPos !== undefined });
     if (!el || el.dataset.ptrWired) return;
     ensureMovingUiOn();
 
@@ -1361,7 +1362,7 @@ function scanAdded(nodes) {
     const reg = registry();
     for (const node of nodes) {
         if (!(node instanceof HTMLElement)) continue;
-        if (node.id && reg[node.id]) wirePanel(node);
+        if (node.id && reg[node.id]) { console.log('[pretext] scanAdded found registered panel', node.id); wirePanel(node); }
         for (const id of Object.keys(reg)) {
             const inner = node.querySelector?.(`#${CSS.escape(id)}`);
             if (inner) wirePanel(inner);
