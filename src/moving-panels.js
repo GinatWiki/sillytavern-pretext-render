@@ -33,7 +33,6 @@ const NATIVE_IDS = new Set([
 
 // Core ST layout elements that must never be floated.
 const BLOCKED_IDS = new Set([
-    ...NATIVE_IDS,
     'chat', 'top-nav', 'top-settings-holder', 'form_sheld', 'send_form',
 ]);
 
@@ -75,7 +74,7 @@ function isSelfWrite(el) { return performance.now() - (selfWriteAt.get(el) ?? -1
 // those programmatic jumps must never become "user placements".
 let popupPtr = { el: null, until: 0 };
 function onPopupPtrDown(e) {
-    for (const [, state] of panelStates) {
+    for (const [id, state] of panelStates) {
         for (const [pop, att] of state.attachments) {
             if (att.shell === e.target) {
                 // Pointer on the shell itself: the resize corner.
@@ -85,6 +84,14 @@ function onPopupPtrDown(e) {
             }
             if (pop === e.target || pop.contains(e.target)) {
                 popupPtr = { el: pop, until: Infinity };
+                // Cascaded popups (opened FROM inside an attached popup)
+                // inherit the owner panel's interaction credit; otherwise a
+                // popup opening beside its parent - far from the panel -
+                // finds no owner and stays at its spawn position.
+                lastInteraction = { id, t: Date.now() };
+                setTimeout(scanForPopups, 150);
+                setTimeout(scanForPopups, 500);
+                setTimeout(scanForPopups, 1200);
                 return;
             }
         }
@@ -583,7 +590,14 @@ function adoptPopupAdjustment(pop) {
             applyShellSize(panel, state, att);
             return;
         }
-        if (isSelfWrite(pop) || !isUserManipulating(pop)) return;
+        if (isSelfWrite(pop)) return;
+        // Adopt only genuine drags: the pointer is currently HELD on the
+        // popup (any drag logic), or ST's dragElement mid-drag flag is set.
+        // Writes in the post-pointerup tail with no active drag are
+        // programmatic re-anchors (content-swap respawn) - never adopt those.
+        const heldByPointer = popupPtr.el === pop && popupPtr.until === Infinity;
+        const stDragging = pop.dataset.dragged === 'true';
+        if (!heldByPointer && !stDragging) return;
         const l = parseFloat(pop.style.left);
         const t = parseFloat(pop.style.top);
         if (!Number.isFinite(l) || !Number.isFinite(t)) return;
@@ -723,6 +737,23 @@ function onPanelStyleChanged(panel) {
     glueHandle(panel);
     const state = panelStates.get(panel.id);
     if (!state) return;
+    // Detect external position reset: if we floated this panel but its
+    // position is no longer fixed/absolute, something reset it (extension
+    // button handler, ST internal code). Re-float from last known coords
+    // so the panel stays where the user placed it instead of snapping back.
+    const cs = getComputedStyle(panel);
+    if ((cs.position === 'static' || cs.position === 'relative') &&
+        panel.dataset.ptrOrigPos !== undefined &&
+        !state.needsRefloat &&
+        panel.dataset.dragged !== 'true') {
+        Object.assign(panel.style, {
+            position: 'fixed',
+            left: state.lastLeft + 'px',
+            top: state.lastTop + 'px',
+            margin: '0',
+        });
+        normalizeGeometry(panel);
+    }
     const r = panel.getBoundingClientRect();
     state.lastLeft = r.left;
     state.lastTop = r.top;
@@ -770,6 +801,40 @@ function unfloatPanel(el) {
     // Keep the dataset entry: a later drag re-floats from it.
 }
 
+/** ST persists right/bottom (alongside top/left) into movingUIState and its
+ *  restore applies the whole blob inline. With an unpinned height/width the
+ *  box is over-constrained: top+bottom both win, so dragElement's top writes
+ *  STRETCH the panel vertically instead of moving it. Re-anchor any
+ *  over-constrained axis to top-left by pinning its size from the live rect
+ *  and clearing the opposite edge. Runs at wire time and before every drag. */
+function normalizeGeometry(el) {
+    const cs = getComputedStyle(el);
+    if (cs.position !== 'fixed' && cs.position !== 'absolute') return;
+    const hasRight = el.style.right !== '' && el.style.right !== 'auto';
+    const hasBottom = el.style.bottom !== '' && el.style.bottom !== 'auto';
+    if (!hasRight && !hasBottom) return;
+    const r = el.getBoundingClientRect();
+    if (r.width < 1 || r.height < 1) return; // hidden/detached: nothing to pin
+    if (hasRight) {
+        el.style.width = `${r.width}px`;
+        el.style.right = 'auto';
+    }
+    if (hasBottom) {
+        el.style.height = `${r.height}px`;
+        el.style.bottom = 'auto';
+    }
+}
+
+/** Apply the remembered movingUIState entry (if any) and normalize geometry.
+ *  No-op while the user is dragging or the element left the DOM. */
+function applySavedPosition(el) {
+    if (!el.isConnected || el.dataset.dragged === 'true') return;
+    const saved = power_user.movingUIState?.[el.id];
+    if (!saved) return;
+    $(el).css(saved);
+    normalizeGeometry(el);
+}
+
 /** A static panel can't contain its absolute handle (the handle would anchor
  *  to the nearest positioned ancestor, i.e. usually the viewport corner).
  *  position:relative is visually identical to static for the panel itself but
@@ -788,12 +853,18 @@ function ensureHandleAnchor(panel) {
 function bindRefloat(el, headerEl) {
     headerEl?.addEventListener('mousedown', () => {
         const st = panelStates.get(el.id);
-        if (!st?.needsRefloat) return;
-        st.needsRefloat = false;
-        floatPanel(el);
+        // Stale right/bottom (from ST movingUIState restore or a prior
+        // resize) over-constrains the box: top+bottom+height makes
+        // dragElement's top writes STRETCH the panel instead of moving it.
+        // Normalize on EVERY mousedown, before dragElement reads offsets.
+        normalizeGeometry(el);
+        if (st?.needsRefloat) {
+            st.needsRefloat = false;
+            floatPanel(el);
+            normalizeGeometry(el);
+        }
         const r = el.getBoundingClientRect();
-        st.lastLeft = r.left;
-        st.lastTop = r.top;
+        if (st) { st.lastLeft = r.left; st.lastTop = r.top; }
     }, true);
 }
 
@@ -821,9 +892,13 @@ function wirePanel(el) {
     dragElement($(el));
 
     // Re-apply a previously saved position (ST's restore ran before this
-    // panel existed in the DOM).
-    const saved = power_user.movingUIState?.[el.id];
-    if (saved) $(el).css(saved);
+    // panel existed in the DOM). Our module can execute before getSettings()
+    // populates movingUIState, and owning extensions may re-anchor their
+    // panel right after wiring; the deferred passes re-assert the remembered
+    // spot once everything settles.
+    applySavedPosition(el);
+    setTimeout(() => { if (panelStates.has(el.id)) applySavedPosition(el); }, 1000);
+    setTimeout(() => { if (panelStates.has(el.id)) applySavedPosition(el); }, 3000);
 
     // Migration: popupAlign used to be a boolean (true = 左对齐).
     const migAlign = prev?.popupAlign === true ? 'left'
@@ -1169,6 +1244,16 @@ function startObserver() {
 // we floated from static flow that leaves position:fixed with no coordinates —
 // they collapse or fly off-screen ("组件消失"). Restore their in-flow layout and
 // re-float on the next drag instead.
+/** Last word on panel positions: APP_READY fires after the entire init
+ *  chain (settings load, ST's own movingUIState restore, other extensions'
+ *  startup layouts), so re-asserting here undoes any startup clobbering. */
+function onAppReadyRestore() {
+    for (const [id] of panelStates) {
+        const el = document.getElementById(id);
+        if (el) applySavedPosition(el);
+    }
+}
+
 function onNativeReset() {
     let recovered = 0;
     for (const [id, state] of panelStates) {
@@ -1251,6 +1336,7 @@ export function enable() {
     document.addEventListener('pointerup', onPopupPtrUp, true);
     document.addEventListener('pointercancel', onPopupPtrUp, true);
     eventSource.on(event_types.MOVABLE_PANELS_RESET, onNativeReset);
+    eventSource.on(event_types.APP_READY, onAppReadyRestore);
 }
 
 export function disable() {
@@ -1259,6 +1345,7 @@ export function disable() {
     exitPicker();
     // ST's EventEmitter has no .off(); removeListener is its equivalent.
     eventSource.removeListener(event_types.MOVABLE_PANELS_RESET, onNativeReset);
+    eventSource.removeListener(event_types.APP_READY, onAppReadyRestore);
     document.removeEventListener('pointerdown', onPopupPtrDown, true);
     document.removeEventListener('pointerup', onPopupPtrUp, true);
     document.removeEventListener('pointercancel', onPopupPtrUp, true);
