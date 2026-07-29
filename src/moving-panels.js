@@ -782,7 +782,7 @@ function onPanelStyleChanged(panel) {
         if (panel.style.top === '' || panel.style.top === 'auto') {
             patch.top = state.lastTop + 'px';
         }
-        state.selfWriteCount = 3; // expect ~3 mutation callbacks
+        state.selfWriteCount = 2; // expect ~2 mutation callbacks
         Object.assign(panel.style, patch);
     }
 
@@ -824,7 +824,7 @@ function onPanelStyleChanged(panel) {
                     patch.height = st.userPos.height + 'px';
                 }
                 console.log('[pretext] restoring to userPos', { patch, currentStyle: panel.getAttribute('style') });
-                st.selfWriteCount = 3;
+                st.selfWriteCount = 2;
                 Object.assign(panel.style, patch);
                 st.restoreTimer = null;
                 const r = panel.getBoundingClientRect();
@@ -976,9 +976,12 @@ function dragWire(el) {
         el.style.margin = "0";
         el.style.width = sw + "px";
         el.style.height = sh + "px";
-        // Mark as self-write so onPanelStyleChanged doesn't try to restore
+        // Mark as self-write so onPanelStyleChanged doesn't try to restore.
+        // Set to 1 (not 3) per move frame: observer fires once per frame;
+        // setting 3 causes a 3-frame backlog after drag ends that swallows
+        // the real external-change detection.
         const st3 = panelStates.get(el.id);
-        if (st3) st3.selfWriteCount = 3;
+        if (st3) st3.selfWriteCount = 1;
     }
     function onUp() {
         if (!dragging) return;
@@ -1112,6 +1115,7 @@ function wirePanel(el) {
         popupAlign: migAlign,
         popupSide: prev?.popupSide ?? 'top',
         popups: prev?.popups ?? {},
+        pos: prev?.pos,
     };
     registry()[el.id] = entry;
     saveSettings();
