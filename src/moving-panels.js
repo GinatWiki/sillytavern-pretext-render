@@ -20,8 +20,6 @@
 // - native-reset recovery: ST's MovingUI reset no longer makes floated
 //   panels vanish; they return to the document flow and re-float on next drag
 
-import { eventSource, event_types, saveSettingsDebounced } from '../../../../../script.js';
-import { power_user } from '../../../../power-user.js';
 import { saveSettings } from './settings.js';
 
 // Already wired by ST's initMovingUI — don't double-register.
