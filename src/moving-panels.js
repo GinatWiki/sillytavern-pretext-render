@@ -906,6 +906,7 @@ function applySavedPosition(el) {
     if (!entry?.pos) return;
     $(el).css(entry.pos);
     normalizeGeometry(el);
+}
 
 /** A static panel can't contain its absolute handle (the handle would anchor
  *  to the nearest positioned ancestor, i.e. usually the viewport corner).
