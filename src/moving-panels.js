@@ -736,8 +736,8 @@ function onPanelStyleChanged(panel) {
     if (!state) return;
 
     // Skip our own writes (dragWire, restore, etc.)
-    if (state.selfWriting) {
-        state.selfWriting = false;
+    if (state.selfWriteCount > 0) {
+        state.selfWriteCount--;
         const r0 = panel.getBoundingClientRect();
         state.lastLeft = r0.left;
         state.lastTop = r0.top;
@@ -752,15 +752,15 @@ function onPanelStyleChanged(panel) {
         panel.dataset.ptrOrigPos !== undefined &&
         !state.needsRefloat &&
         panel.dataset.dragged !== 'true') {
-        state.selfWriting = true;
-        panel.style.position = 'fixed';
-        panel.style.margin = '0';
+        const patch = { position: 'fixed', margin: '0' };
         if (panel.style.left === '' || panel.style.left === 'auto') {
-            panel.style.left = state.lastLeft + 'px';
+            patch.left = state.lastLeft + 'px';
         }
         if (panel.style.top === '' || panel.style.top === 'auto') {
-            panel.style.top = state.lastTop + 'px';
+            patch.top = state.lastTop + 'px';
         }
+        state.selfWriteCount = 3; // expect ~3 mutation callbacks
+        Object.assign(panel.style, patch);
     }
 
     // Case 2: position is still fixed but left/top/width were externally
@@ -784,13 +784,16 @@ function onPanelStyleChanged(panel) {
                 if (!panelStates.has(panel.id)) return;
                 const st = panelStates.get(panel.id);
                 if (!st.userPos || st.dragging) return;
-                st.selfWriting = true;
-                panel.style.left = st.userPos.left + 'px';
-                panel.style.top = st.userPos.top + 'px';
-                panel.style.width = st.userPos.width + 'px';
+                const patch = {
+                    left: st.userPos.left + 'px',
+                    top: st.userPos.top + 'px',
+                    width: st.userPos.width + 'px',
+                };
                 if (st.userPos.height) {
-                    panel.style.height = st.userPos.height + 'px';
+                    patch.height = st.userPos.height + 'px';
                 }
+                st.selfWriteCount = 3;
+                Object.assign(panel.style, patch);
                 st.restoreTimer = null;
                 const r = panel.getBoundingClientRect();
                 st.lastLeft = r.left;
@@ -942,7 +945,7 @@ function dragWire(el) {
         el.style.height = sh + "px";
         // Mark as self-write so onPanelStyleChanged doesn't try to restore
         const st3 = panelStates.get(el.id);
-        if (st3) st3.selfWriting = true;
+        if (st3) st3.selfWriteCount = 3;
     }
     function onUp() {
         if (!dragging) return;
@@ -1085,7 +1088,7 @@ function wirePanel(el) {
         needsRefloat: false,
         userPos: null,
         dragging: false,
-        selfWriting: false,
+        selfWriteCount: 0,
         restoreTimer: null,
         attachments: new Map(),
         handle,
@@ -1106,6 +1109,13 @@ function wirePanel(el) {
         if (r.width === state.lastW && r.height === state.lastH) return;
         state.lastW = r.width;
         state.lastH = r.height;
+        // User resized the panel ? update userPos so onPanelStyleChanged
+        // doesn't restore the old size.
+        if (state.userPos) {
+            const cs2 = getComputedStyle(el);
+            state.userPos.width = parseFloat(cs2.width) || r.width;
+            state.userPos.height = parseFloat(cs2.height) || r.height;
+        }
         relayoutPanel(el, state);
     });
     state.resizeObserver.observe(el);
