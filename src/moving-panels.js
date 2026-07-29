@@ -734,28 +734,27 @@ function onPanelStyleChanged(panel) {
     glueHandle(panel);
     const state = panelStates.get(panel.id);
     if (!state) return;
-    // Detect external position reset: if we floated this panel but its
-    // position is no longer fixed/absolute, something reset it. In that
-    // case re-float IN PLACE using the panel's CURRENT rect (not lastLeft/
-    // lastTop which may be stale after the extension's own re-layout).
-    // This prevents the panel from jumping back to an old position.
+    // Lock position only: if the owning extension reset position to
+    // static/relative (e.g. acu re-layouts on popup open), restore
+    // position:fixed + margin:0 but DO NOT touch left/top/width/height.
+    // The extension is free to adjust those ? we only prevent the panel
+    // from dropping out of fixed flow. This avoids a feedback loop where
+    // our writes trigger the extension's observer which writes back.
     const cs = getComputedStyle(panel);
     if ((cs.position === 'static' || cs.position === 'relative') &&
         panel.dataset.ptrOrigPos !== undefined &&
         !state.needsRefloat &&
         panel.dataset.dragged !== 'true') {
-        const cur = panel.getBoundingClientRect();
-        Object.assign(panel.style, {
-            position: 'fixed',
-            left: cur.left + 'px',
-            top: cur.top + 'px',
-            margin: '0',
-        });
-        // Pin width/height from the live rect so the panel doesn't collapse
-        const w = cur.width, h = cur.height;
-        if (w > 0) panel.style.width = w + 'px';
-        if (h > 0) panel.style.height = h + 'px';
-        normalizeGeometry(panel);
+        panel.style.position = 'fixed';
+        panel.style.margin = '0';
+        // If left/top are empty after the extension's reset, the panel
+        // would fly to 0,0. Use the current rect as a fallback only then.
+        if (panel.style.left === '' || panel.style.left === 'auto') {
+            panel.style.left = panel.getBoundingClientRect().left + 'px';
+        }
+        if (panel.style.top === '' || panel.style.top === 'auto') {
+            panel.style.top = panel.getBoundingClientRect().top + 'px';
+        }
     }
     const r = panel.getBoundingClientRect();
     state.lastLeft = r.left;
