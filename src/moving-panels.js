@@ -744,7 +744,23 @@ function onPanelStyleChanged(panel) {
     const state = panelStates.get(panel.id);
     if (!state) return;
 
-    // Skip our own writes (dragWire, restore, etc.)
+    // Skip during initial position restore (wirePanel applies saved
+    // position before state is fully created).
+    if (panel.dataset.ptrRestoring) {
+        delete panel.dataset.ptrRestoring;
+        relayoutPanel(panel, state);
+        return;
+    }
+    // Skip our own writes while dragging (every mousemove frame writes
+    // to el.style, which would overwhelm a counter).
+    if (state.dragging) {
+        const r0 = panel.getBoundingClientRect();
+        state.lastLeft = r0.left;
+        state.lastTop = r0.top;
+        relayoutPanel(panel, state);
+        return;
+    }
+    // Skip our own restore writes (counter-based, for non-drag writes)
     if (state.selfWriteCount > 0) {
         state.selfWriteCount--;
         const r0 = panel.getBoundingClientRect();
@@ -1043,6 +1059,16 @@ function wirePanel(el) {
     el.classList.add('ptr-movable');
     const cs = getComputedStyle(el);
     floatPanel(el);
+    // If we have a saved position, apply it immediately after floating.
+    // The panelStates entry doesn't exist yet (created below), so we
+    // set a temporary flag on the element that onPanelStyleChanged
+    // checks. The flag is cleared once state is created.
+    const savedEntry0 = registry()[el.id];
+    if (savedEntry0?.pos) {
+        el.dataset.ptrRestoring = '1';
+        $(el).css(savedEntry0.pos);
+        normalizeGeometry(el);
+    }
 
     // CSS resize needs non-visible overflow.
     if (cs.overflow === 'visible') {
@@ -1161,6 +1187,20 @@ function wirePanel(el) {
     bindRefloat(el, headerEl);
 
     panelStates.set(el.id, state);
+
+    // Initialize userPos from saved position so onPanelStyleChanged
+    // can restore it if the owning extension overwrites style later.
+    const savedEntry2 = registry()[el.id];
+    if (savedEntry2?.pos) {
+        const r = el.getBoundingClientRect();
+        const cs3 = getComputedStyle(el);
+        state.userPos = {
+            left: parseFloat(cs3.left) || r.left,
+            top: parseFloat(cs3.top) || r.top,
+            width: parseFloat(cs3.width) || r.width,
+            height: parseFloat(cs3.height) || 0,
+        };
+    }
 
     el.dataset.ptrWired = '1';
     refreshFollowButtons(el);
