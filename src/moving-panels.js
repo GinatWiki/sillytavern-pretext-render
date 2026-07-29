@@ -734,28 +734,72 @@ function onPanelStyleChanged(panel) {
     glueHandle(panel);
     const state = panelStates.get(panel.id);
     if (!state) return;
-    // Lock position only: if the owning extension reset position to
-    // static/relative (e.g. acu re-layouts on popup open), restore
-    // position:fixed + margin:0 but DO NOT touch left/top/width/height.
-    // The extension is free to adjust those ? we only prevent the panel
-    // from dropping out of fixed flow. This avoids a feedback loop where
-    // our writes trigger the extension's observer which writes back.
+
+    // Skip our own writes (dragWire, restore, etc.)
+    if (state.selfWriting) {
+        state.selfWriting = false;
+        const r0 = panel.getBoundingClientRect();
+        state.lastLeft = r0.left;
+        state.lastTop = r0.top;
+        relayoutPanel(panel, state);
+        return;
+    }
+
     const cs = getComputedStyle(panel);
+
+    // Case 1: position reset to static/relative ? restore fixed.
     if ((cs.position === 'static' || cs.position === 'relative') &&
         panel.dataset.ptrOrigPos !== undefined &&
         !state.needsRefloat &&
         panel.dataset.dragged !== 'true') {
+        state.selfWriting = true;
         panel.style.position = 'fixed';
         panel.style.margin = '0';
-        // If left/top are empty after the extension's reset, the panel
-        // would fly to 0,0. Use the current rect as a fallback only then.
         if (panel.style.left === '' || panel.style.left === 'auto') {
-            panel.style.left = panel.getBoundingClientRect().left + 'px';
+            panel.style.left = state.lastLeft + 'px';
         }
         if (panel.style.top === '' || panel.style.top === 'auto') {
-            panel.style.top = panel.getBoundingClientRect().top + 'px';
+            panel.style.top = state.lastTop + 'px';
         }
     }
+
+    // Case 2: position is still fixed but left/top/width were externally
+    // overwritten (e.g. acu extension re-layouts on popup open, rewriting
+    // the entire style attribute). If we have a saved user position and
+    // the values changed, restore them. Use a short debounce to avoid
+    // fighting the extension's own observer loop.
+    if (cs.position === 'fixed' && state.userPos && !state.dragging &&
+        panel.dataset.dragged !== 'true') {
+        const curL = parseFloat(cs.left) || 0;
+        const curT = parseFloat(cs.top) || 0;
+        const curW = parseFloat(cs.width) || 0;
+        // Only restore if the position meaningfully changed from what
+        // the user dragged to. Small drift (<2px) is ignored.
+        if (Math.abs(curL - state.userPos.left) > 2 ||
+            Math.abs(curT - state.userPos.top) > 2 ||
+            Math.abs(curW - state.userPos.width) > 2) {
+            // Debounce: only restore once per burst of external writes
+            if (state.restoreTimer) clearTimeout(state.restoreTimer);
+            state.restoreTimer = setTimeout(() => {
+                if (!panelStates.has(panel.id)) return;
+                const st = panelStates.get(panel.id);
+                if (!st.userPos || st.dragging) return;
+                st.selfWriting = true;
+                panel.style.left = st.userPos.left + 'px';
+                panel.style.top = st.userPos.top + 'px';
+                panel.style.width = st.userPos.width + 'px';
+                if (st.userPos.height) {
+                    panel.style.height = st.userPos.height + 'px';
+                }
+                st.restoreTimer = null;
+                const r = panel.getBoundingClientRect();
+                st.lastLeft = r.left;
+                st.lastTop = r.top;
+                relayoutPanel(panel, st);
+            }, 50);
+        }
+    }
+
     const r = panel.getBoundingClientRect();
     state.lastLeft = r.left;
     state.lastTop = r.top;
@@ -873,6 +917,7 @@ function dragWire(el) {
         if (e.clientX > r.right - 18 && e.clientY > r.bottom - 18) return;
         e.preventDefault();
         dragging = true;
+        state.dragging = true;
         el.dataset.dragged = "true";
         sx = e.clientX; sy = e.clientY;
         const cs = getComputedStyle(el);
@@ -898,17 +943,24 @@ function dragWire(el) {
     function onUp() {
         if (!dragging) return;
         dragging = false;
+        state.dragging = false;
         el.dataset.dragged = "false";
         document.removeEventListener("mousemove", onMove);
         document.removeEventListener("mouseup", onUp);
         const entry = registry()[el.id];
+        const r2 = el.getBoundingClientRect();
+        const userPos = {
+            left: parseFloat(el.style.left) || r2.left,
+            top: parseFloat(el.style.top) || r2.top,
+            width: parseFloat(el.style.width) || r2.width,
+            height: parseFloat(el.style.height) || 0,
+        };
         if (entry) {
-            entry.pos = { left: el.style.left, top: el.style.top, width: el.style.width, height: el.style.height };
+            entry.pos = { left: userPos.left + 'px', top: userPos.top + 'px', width: userPos.width + 'px', height: userPos.height ? userPos.height + 'px' : '' };
             saveSettings();
         }
-        const state = panelStates.get(el.id);
         if (state) {
-            const r2 = el.getBoundingClientRect();
+            state.userPos = userPos;
             state.lastLeft = r2.left;
             state.lastTop = r2.top;
             state.lastW = r2.width;
@@ -976,6 +1028,20 @@ function wirePanel(el) {
     // panel right after wiring; the deferred passes re-assert the remembered
     // spot once everything settles.
     applySavedPosition(el);
+    // Record initial userPos from the applied position so onPanelStyleChanged
+    // can restore it if the owning extension overwrites style.
+    setTimeout(() => {
+        if (!panelStates.has(el.id)) return;
+        const st = panelStates.get(el.id);
+        const r = el.getBoundingClientRect();
+        const cs2 = getComputedStyle(el);
+        st.userPos = {
+            left: parseFloat(cs2.left) || r.left,
+            top: parseFloat(cs2.top) || r.top,
+            width: parseFloat(cs2.width) || r.width,
+            height: parseFloat(cs2.height) || 0,
+        };
+    }, 100);
     setTimeout(() => { if (panelStates.has(el.id)) applySavedPosition(el); }, 1000);
     setTimeout(() => { if (panelStates.has(el.id)) applySavedPosition(el); }, 3000);
 
@@ -1011,6 +1077,10 @@ function wirePanel(el) {
         popupAlign: entry.popupAlign,
         popupSide: entry.popupSide,
         needsRefloat: false,
+        userPos: null,
+        dragging: false,
+        selfWriting: false,
+        restoreTimer: null,
         attachments: new Map(),
         handle,
         styleObserver: null,
