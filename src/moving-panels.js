@@ -1024,14 +1024,40 @@ let resizeTimer = null;
 function clampPanelToViewport(el) {
     const r = el.getBoundingClientRect();
     if (!r.width || !r.height) return null;
-    const cs = getComputedStyle(el);
-    const curLeft = parseFloat(cs.left);
-    const curTop = parseFloat(cs.top);
-    if (!Number.isFinite(curLeft) || !Number.isFinite(curTop)) return null;
+    const curLeft = r.left;
+    const curTop = r.top;
     const nextLeft = Math.min(Math.max(curLeft, 0), Math.max(0, window.innerWidth - r.width));
     const nextTop = Math.min(Math.max(curTop, 0), Math.max(0, window.innerHeight - r.height));
     if (Math.abs(nextLeft - curLeft) < 0.5 && Math.abs(nextTop - curTop) < 0.5) return null;
-    return { left: Math.round(nextLeft), top: Math.round(nextTop) };
+    const left = Math.round(nextLeft);
+    const top = Math.round(nextTop);
+    el.style.left = left + 'px';
+    el.style.top = top + 'px';
+    const state = panelStates.get(el.id);
+    if (state) {
+        const r2 = el.getBoundingClientRect();
+        state.lastLeft = r2.left;
+        state.lastTop = r2.top;
+        state.lastW = r2.width;
+        state.lastH = r2.height;
+        if (state.userPos) {
+            state.userPos.left = r2.left;
+            state.userPos.top = r2.top;
+            state.userPos.width = r2.width;
+            state.userPos.height = r2.height;
+        }
+    }
+    const entry = registry()[el.id];
+    if (entry) {
+        const r3 = el.getBoundingClientRect();
+        entry.pos = {
+            left: `${r3.left}px`,
+            top: `${r3.top}px`,
+            width: `${r3.width}px`,
+            height: `${r3.height}px`,
+        };
+    }
+    return { left, top };
 }
 
 function onWindowResize() {
