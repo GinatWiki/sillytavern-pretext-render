@@ -224,6 +224,25 @@ function glueHandle(panel) {
     }
 }
 
+function ensurePanelHandle(panel, state) {
+    if (!state) return null;
+    let handle = state.handle;
+    if (!handle || !handle.isConnected) {
+        const existing = document.getElementById(`${panel.id}header`);
+        if (existing) {
+            handle = existing;
+        } else {
+            handle = createHandle(panel, state.handleSide);
+            bindRefloat(panel, handle);
+            refreshFollowButtons(panel);
+            setSidePadding(panel, state.handleSide);
+        }
+        state.handle = handle;
+    }
+    glueHandle(panel);
+    return handle;
+}
+
 function toggleSide(panel) {
     const state = panelStates.get(panel.id);
     if (!state?.handle) return;
@@ -738,7 +757,7 @@ function onPanelStyleChanged(panel) {
         hasUserPos: !!state0?.userPos,
         currentStyle: panel.getAttribute('style')?.substring(0, 120),
     });
-    glueHandle(panel);
+    if (state0) ensurePanelHandle(panel, state0);
     const state = panelStates.get(panel.id);
     if (!state) return;
 
@@ -1031,10 +1050,12 @@ function clampPanelToViewport(el) {
     if (Math.abs(nextLeft - curLeft) < 0.5 && Math.abs(nextTop - curTop) < 0.5) return null;
     const left = Math.round(nextLeft);
     const top = Math.round(nextTop);
+    const state = panelStates.get(el.id);
+    if (state) state.selfWriteCount = 1;
     el.style.left = left + 'px';
     el.style.top = top + 'px';
-    const state = panelStates.get(el.id);
     if (state) {
+        ensurePanelHandle(el, state);
         const r2 = el.getBoundingClientRect();
         state.lastLeft = r2.left;
         state.lastTop = r2.top;
