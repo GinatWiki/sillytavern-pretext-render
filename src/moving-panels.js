@@ -1,4 +1,4 @@
-﻿// Moving panels — extend ST's native MovingUI to arbitrary sub-panels.
+// Moving panels — extend ST's native MovingUI to arbitrary sub-panels.
 //
 // Native MovingUI (RossAscends-mods.js dragElement) only wires 7 hardcoded
 // ids and depends on ST's MovingUI toggle. This module is FULLY INDEPENDENT:
@@ -906,6 +906,7 @@ function applySavedPosition(el) {
     if (!entry?.pos) return;
     $(el).css(entry.pos);
     normalizeGeometry(el);
+    clampPanelToViewport(el);
 }
 
 /** A static panel can't contain its absolute handle (the handle would anchor
@@ -969,8 +970,10 @@ function dragWire(el) {
         e.preventDefault();
         let nx = sl + (e.clientX - sx);
         let ny = st0 + (e.clientY - sy);
-        nx = Math.max(0, Math.min(nx, window.innerWidth - 20));
-        ny = Math.max(0, Math.min(ny, window.innerHeight - 20));
+        // Keep the whole panel inside the viewport while dragging; oversized
+        // panels stay pinned to the top-left corner.
+        nx = Math.min(Math.max(nx, 0), Math.max(0, window.innerWidth - sw));
+        ny = Math.min(Math.max(ny, 0), Math.max(0, window.innerHeight - sh));
         el.style.left = nx + "px";
         el.style.top = ny + "px";
         el.style.margin = "0";
@@ -1017,30 +1020,57 @@ function dragWire(el) {
 }
 
 let resizeTimer = null;
+
+function clampPanelToViewport(el) {
+    const r = el.getBoundingClientRect();
+    if (!r.width || !r.height) return null;
+    const cs = getComputedStyle(el);
+    const curLeft = parseFloat(cs.left);
+    const curTop = parseFloat(cs.top);
+    if (!Number.isFinite(curLeft) || !Number.isFinite(curTop)) return null;
+    const nextLeft = Math.min(Math.max(curLeft, 0), Math.max(0, window.innerWidth - r.width));
+    const nextTop = Math.min(Math.max(curTop, 0), Math.max(0, window.innerHeight - r.height));
+    if (Math.abs(nextLeft - curLeft) < 0.5 && Math.abs(nextTop - curTop) < 0.5) return null;
+    return { left: Math.round(nextLeft), top: Math.round(nextTop) };
+}
+
 function onWindowResize() {
     if (resizeTimer) clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => {
         for (const [id, state] of panelStates) {
             const el = document.getElementById(id);
-            if (!el) continue;
+            if (!el || !el.isConnected) continue;
+            const clamped = clampPanelToViewport(el);
             const r = el.getBoundingClientRect();
-            // Only nudge if the panel's top-left corner is off-screen.
-            // A panel wider than the viewport may extend past the right
-            // edge by design ? don't force it back in.
-            if (r.left < 0) {
-                el.style.left = '0px';
-            } else if (r.left >= window.innerWidth) {
-                // Entire panel pushed off the right edge
-                el.style.left = Math.max(0, window.innerWidth - 40) + 'px';
+            state.lastLeft = r.left;
+            state.lastTop = r.top;
+            state.lastW = r.width;
+            state.lastH = r.height;
+            if (clamped) {
+                const entry = registry()[id];
+                if (entry) {
+                    entry.pos = {
+                        left: `${r.left}px`,
+                        top: `${r.top}px`,
+                        width: `${r.width}px`,
+                        height: `${r.height}px`,
+                    };
+                }
+                if (state.userPos) {
+                    state.userPos.left = r.left;
+                    state.userPos.top = r.top;
+                    state.userPos.width = r.width;
+                    state.userPos.height = r.height;
+                }
+                console.log('[pretext] viewport clamp applied', {
+                    id,
+                    left: r.left,
+                    top: r.top,
+                    width: r.width,
+                    height: r.height,
+                    viewport: { w: window.innerWidth, h: window.innerHeight },
+                });
             }
-            if (r.top < 0) {
-                el.style.top = '0px';
-            } else if (r.top >= window.innerHeight) {
-                el.style.top = Math.max(0, window.innerHeight - 40) + 'px';
-            }
-            const r2 = el.getBoundingClientRect();
-            state.lastLeft = r2.left;
-            state.lastTop = r2.top;
             relayoutPanel(el, state);
         }
     }, 150);
