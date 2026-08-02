@@ -732,7 +732,8 @@ function maybeAttach(el) {
     // writes no longer affect layout.
     const shell = document.createElement('div');
     shell.className = 'ptr-pick-ui ptr-pop-shell';
-    if (getComputedStyle(el).zIndex !== 'auto') shell.style.zIndex = getComputedStyle(el).zIndex;
+    const popZ = parseInt(getComputedStyle(el).zIndex, 10);
+    shell.style.zIndex = String(Number.isFinite(popZ) ? Math.max(popZ, 30000) : 30000);
     el.before(shell);
     shell.appendChild(el);
     el.classList.add('ptr-shelled');
@@ -1021,14 +1022,20 @@ function dragWire(el) {
             width: parseFloat(el.style.width) || r2.width,
             height: parseFloat(el.style.height) || 0,
         };
-        console.log('[pretext] dragWire onUp saving userPos', userPos);
+        const anchorX = r2.right >= window.innerWidth - 32 ? 'right' : r2.left <= 32 ? 'left' : null;
+        const anchorY = r2.bottom >= window.innerHeight - 32 ? 'bottom' : r2.top <= 32 ? 'top' : null;
+        console.log('[pretext] dragWire onUp saving userPos', { userPos, anchorX, anchorY });
         if (entry) {
             entry.pos = { left: userPos.left + 'px', top: userPos.top + 'px', width: userPos.width + 'px', height: userPos.height ? userPos.height + 'px' : '' };
+            entry.anchorX = anchorX;
+            entry.anchorY = anchorY;
             saveSettings();
         }
         const st2 = panelStates.get(el.id);
         if (st2) {
             st2.userPos = userPos;
+            st2.anchorX = anchorX;
+            st2.anchorY = anchorY;
             st2.lastLeft = r2.left;
             st2.lastTop = r2.top;
             st2.lastW = r2.width;
@@ -1043,14 +1050,21 @@ let resizeTimer = null;
 function clampPanelToViewport(el) {
     const r = el.getBoundingClientRect();
     if (!r.width || !r.height) return null;
-    const curLeft = r.left;
-    const curTop = r.top;
-    const nextLeft = Math.min(Math.max(curLeft, 0), Math.max(0, window.innerWidth - r.width));
-    const nextTop = Math.min(Math.max(curTop, 0), Math.max(0, window.innerHeight - r.height));
-    if (Math.abs(nextLeft - curLeft) < 0.5 && Math.abs(nextTop - curTop) < 0.5) return null;
+    const state = panelStates.get(el.id);
+    const savedEntry = registry()[el.id];
+    const savedLeft = state?.userPos?.left ?? parseFloat(savedEntry?.pos?.left);
+    const savedTop = state?.userPos?.top ?? parseFloat(savedEntry?.pos?.top);
+    const curLeft = Number.isFinite(savedLeft) ? savedLeft : r.left;
+    const curTop = Number.isFinite(savedTop) ? savedTop : r.top;
+    const anchorX = state?.anchorX ?? savedEntry?.anchorX;
+    const anchorY = state?.anchorY ?? savedEntry?.anchorY;
+    const targetLeft = anchorX === 'right' ? window.innerWidth - r.width : curLeft;
+    const targetTop = anchorY === 'bottom' ? window.innerHeight - r.height : curTop;
+    const nextLeft = Math.min(Math.max(targetLeft, 0), Math.max(0, window.innerWidth - r.width));
+    const nextTop = Math.min(Math.max(targetTop, 0), Math.max(0, window.innerHeight - r.height));
+    if (Math.abs(nextLeft - r.left) < 0.5 && Math.abs(nextTop - r.top) < 0.5) return null;
     const left = Math.round(nextLeft);
     const top = Math.round(nextTop);
-    const state = panelStates.get(el.id);
     if (state) state.selfWriteCount = 1;
     el.style.left = left + 'px';
     el.style.top = top + 'px';
@@ -1061,22 +1075,6 @@ function clampPanelToViewport(el) {
         state.lastTop = r2.top;
         state.lastW = r2.width;
         state.lastH = r2.height;
-        if (state.userPos) {
-            state.userPos.left = r2.left;
-            state.userPos.top = r2.top;
-            state.userPos.width = r2.width;
-            state.userPos.height = r2.height;
-        }
-    }
-    const entry = registry()[el.id];
-    if (entry) {
-        const r3 = el.getBoundingClientRect();
-        entry.pos = {
-            left: `${r3.left}px`,
-            top: `${r3.top}px`,
-            width: `${r3.width}px`,
-            height: `${r3.height}px`,
-        };
     }
     return { left, top };
 }
@@ -1094,21 +1092,6 @@ function onWindowResize() {
             state.lastW = r.width;
             state.lastH = r.height;
             if (clamped) {
-                const entry = registry()[id];
-                if (entry) {
-                    entry.pos = {
-                        left: `${r.left}px`,
-                        top: `${r.top}px`,
-                        width: `${r.width}px`,
-                        height: `${r.height}px`,
-                    };
-                }
-                if (state.userPos) {
-                    state.userPos.left = r.left;
-                    state.userPos.top = r.top;
-                    state.userPos.width = r.width;
-                    state.userPos.height = r.height;
-                }
                 console.log('[pretext] viewport clamp applied', {
                     id,
                     left: r.left,
@@ -1167,6 +1150,7 @@ function wirePanel(el) {
     setTimeout(() => {
         if (!panelStates.has(el.id)) return;
         const st = panelStates.get(el.id);
+        if (st.userPos) return;
         const r = el.getBoundingClientRect();
         const cs2 = getComputedStyle(el);
         st.userPos = {
@@ -1193,6 +1177,8 @@ function wirePanel(el) {
         popupSide: prev?.popupSide ?? 'top',
         popups: prev?.popups ?? {},
         pos: prev?.pos,
+        anchorX: prev?.anchorX ?? null,
+        anchorY: prev?.anchorY ?? null,
     };
     // Only persist if the entry actually changed (new panel or fields differ).
     // Avoiding redundant saveSettings() calls prevents a feedback loop:
@@ -1223,6 +1209,8 @@ function wirePanel(el) {
         popupSide: entry.popupSide,
         needsRefloat: false,
         userPos: null,
+        anchorX: entry.anchorX ?? null,
+        anchorY: entry.anchorY ?? null,
         dragging: false,
         selfWriteCount: 0,
         restoreTimer: null,
@@ -1283,13 +1271,14 @@ function wirePanel(el) {
     const savedEntry2 = registry()[el.id];
     if (savedEntry2?.pos) {
         const r = el.getBoundingClientRect();
-        const cs3 = getComputedStyle(el);
         state.userPos = {
-            left: parseFloat(cs3.left) || r.left,
-            top: parseFloat(cs3.top) || r.top,
-            width: parseFloat(cs3.width) || r.width,
-            height: parseFloat(cs3.height) || 0,
+            left: parseFloat(savedEntry2.pos.left) || r.left,
+            top: parseFloat(savedEntry2.pos.top) || r.top,
+            width: parseFloat(savedEntry2.pos.width) || r.width,
+            height: parseFloat(savedEntry2.pos.height) || 0,
         };
+        state.anchorX = savedEntry2.anchorX ?? state.anchorX;
+        state.anchorY = savedEntry2.anchorY ?? state.anchorY;
     }
 
     el.dataset.ptrWired = '1';

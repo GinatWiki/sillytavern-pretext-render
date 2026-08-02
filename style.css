@@ -56,7 +56,7 @@
 /* --- Moving panels --- */
 .ptr-movable {
     resize: both; /* native dragElement watches inline size changes */
-    z-index: 1000;
+    z-index: 30000;
 }
 
 /* Grip bar — lives INSIDE the panel as a full-width strip glued to the top
@@ -193,6 +193,7 @@
     resize: both;
     overflow: auto;
     overscroll-behavior: contain;
+    z-index: 30000;
 }
 
 .ptr-shelled {

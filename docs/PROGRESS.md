@@ -119,7 +119,7 @@
   才钉尺寸（内容拥抱变化忽略）；钉了宽/高的壳加 ptr-w/ptr-h-fixed，弹窗 100% 填满；
   弹窗自身拖拽（dragElement 等写内联 left/top）在指针按住时**镜像到壳上**并清 snap
   ——偏移持久化，弹窗内联清空（本来就无效）
-> - 防出框：拖拽限位 + window resize 后对已悬浮面板按宽高夹回视口；超宽/超高面板锚到左上角，加载已保存位置时也做一次夹取
+> - 防出框：拖拽限位 + window resize 后对已悬浮面板按宽高夹回视口；超宽/超高面板锚到左上角，加载已保存位置时也做一次夹取；夹取不覆盖保存坐标，放大后按保存位置恢复，拖动结束时记录右/下边缘吸附；悬浮面板和弹窗外壳 z-index 提到 30000 防被 ST 输入栏遮挡
 - [归] 按钮 dockPanel：静态来源面板 unfloatPanel 恢复文档流 + 清 right/bottom/height；
   原本就定位的面板清内联几何交还样式表；同时删除 movingUIState 记录，重载不还原
 - 原生重置兼容：监听 `MOVABLE_PANELS_RESET`（='movable_panels_reset'，events.js 定义、
