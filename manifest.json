@@ -1,12 +1,16 @@
-{
-    "display_name": "Pretext 渲染增强",
-    "loading_order": 10,
-    "requires": [],
-    "optional": [],
-    "js": "index.js",
-    "css": "style.css",
-    "author": "sillytavern-pretext-render",
-    "version": "0.1.7",
-    "auto_update": true,
-    "homePage": "https://github.com/chenglou/pretext"
+﻿{
+    "display_name":  "Pretext 娓叉煋澧炲己",
+    "loading_order":  10,
+    "requires":  [
+
+                 ],
+    "optional":  [
+
+                 ],
+    "js":  "index.js",
+    "css":  "style.css",
+    "author":  "sillytavern-pretext-render",
+    "version":  "0.1.8",
+    "auto_update":  true,
+    "homePage":  "https://github.com/chenglou/pretext"
 }
