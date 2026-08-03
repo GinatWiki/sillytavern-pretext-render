@@ -733,7 +733,7 @@ function maybeAttach(el) {
     const shell = document.createElement('div');
     shell.className = 'ptr-pick-ui ptr-pop-shell';
     const popZ = parseInt(getComputedStyle(el).zIndex, 10);
-    shell.style.zIndex = String(Number.isFinite(popZ) ? Math.max(popZ, 30000) : 30000);
+    shell.style.zIndex = String(Number.isFinite(popZ) ? Math.max(popZ, 99999) : 30000);
     el.before(shell);
     shell.appendChild(el);
     el.classList.add('ptr-shelled');
