@@ -1,4 +1,4 @@
-/* Pretext 渲染增强 — extension styles.
+/* Pretext 渲染增强 �?extension styles.
    Feature classes are toggled on the elements they affect; nothing here
    activates unless a module opts in. */
 
@@ -56,13 +56,13 @@
 /* --- Moving panels --- */
 .ptr-movable {
     resize: both; /* native dragElement watches inline size changes */
-    z-index: 30000;
+    z-index: 31000;
 }
 
-/* Grip bar — lives INSIDE the panel as a full-width strip glued to the top
+/* Grip bar �?lives INSIDE the panel as a full-width strip glued to the top
    or bottom inner edge (glueHandle() compensates for internal scroll). The
    panel receives 16px of extra padding on the handle side, so the bar only
-   covers that padding strip — never panel content. Buttons spread evenly.
+   covers that padding strip �?never panel content. Buttons spread evenly.
    `top` is set inline by glueHandle(). */
 .ptr-drag-handle {
     position: absolute;
@@ -87,7 +87,7 @@
 }
 
 /* The whole bar carries .drag-grabber so any point on it starts ST's drag
-   (buttons excepted — their e.target lacks the class). Pin down the native
+   (buttons excepted �?their e.target lacks the class). Pin down the native
    class's side effects (absolute+right:0+z-index:2000+margin+opacity) so the
    strip keeps its own layout. Must precede the [data-side] rules below so
    the bottom bar's 18px resize-corner clearance still wins. */
@@ -104,8 +104,7 @@
     cursor: grabbing;
 }
 
-/* ST's native .drag-grabber is position:absolute; right:0; z-index:2000 —
-   inside our bar that makes the grip an overlay covering the buttons and
+/* ST's native .drag-grabber is position:absolute; right:0; z-index:2000 �?   inside our bar that makes the grip an overlay covering the buttons and
    swallowing their clicks. Demote it to a normal flex item. */
 .ptr-drag-handle .ptr-grip {
     position: static;
@@ -174,7 +173,7 @@
     color: #fff;
 }
 
-/* second state of the 3-state cycles (右对齐 / 上方) */
+/* second state of the 3-state cycles (右对�?/ 上方) */
 .ptr-follow.active-alt {
     opacity: 1;
     background: var(--SmartThemeEmColor, #e0913c);
@@ -182,8 +181,8 @@
     color: #fff;
 }
 
-/* Popup shell — the box we actually position. Edge-anchored to the panel
-   (bottom edge for 上, right edge for 右), so content growth and swapped-in
+/* Popup shell �?the box we actually position. Edge-anchored to the panel
+   (bottom edge for �? right edge for �?, so content growth and swapped-in
    popups re-glue themselves with no JS. User-resizable; the popup inside is
    a static child whose own position writes are inert. */
 .ptr-pop-shell {
@@ -193,7 +192,7 @@
     resize: both;
     overflow: auto;
     overscroll-behavior: contain;
-    z-index: 30000;
+    z-index: 31000;
 }
 
 .ptr-shelled {
@@ -204,7 +203,7 @@
     flex: 0 0 auto;
 }
 
-/* shell width/height pinned (等宽 follow or user resize) → popup fills it */
+/* shell width/height pinned (等宽 follow or user resize) �?popup fills it */
 .ptr-pop-shell.ptr-w-fixed > .ptr-shelled {
     width: 100% !important;
     box-sizing: border-box !important;

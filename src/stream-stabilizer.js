@@ -78,7 +78,7 @@ const stabilize = rafThrottle(() => {
 
     if (!userScrolledUp && isNearBottom()) {
         const c = chat();
-        c.scrollTop = c.scrollHeight;
+        if (c) c.scrollTop = c.scrollHeight;
     }
 });
 

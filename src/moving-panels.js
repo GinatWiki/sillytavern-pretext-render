@@ -1,4 +1,4 @@
-// Moving panels — extend ST's native MovingUI to arbitrary sub-panels.
+// Moving panels �?extend ST's native MovingUI to arbitrary sub-panels.
 //
 // Native MovingUI (RossAscends-mods.js dragElement) only wires 7 hardcoded
 // ids and depends on ST's MovingUI toggle. This module is FULLY INDEPENDENT:
@@ -8,12 +8,12 @@
 //
 // On top of plain dragging this module provides:
 // - an in-panel grip tab (top/bottom switchable, keeps clear of the
-//   bottom-right resize corner; the whole bar drags, not just the ⠿ glyph)
+//   bottom-right resize corner; the whole bar drags, not just the �?glyph)
 // - attachment: popups opened from a moved panel are wrapped in a SHELL that
 //   is edge-anchored to the panel (per-panel 左右 toggle: left/right/off,
-//   上下 toggle: top/bottom/off). Anchored by the matching edge (上 → bottom
-//   anchor, 右 → right anchor), shells hug their content and re-glue
-//   themselves on any reflow or content swap — extension re-anchors of the
+//   上下 toggle: top/bottom/off). Anchored by the matching edge (�?�?bottom
+//   anchor, �?�?right anchor), shells hug their content and re-glue
+//   themselves on any reflow or content swap �?extension re-anchors of the
 //   popup are inert inside the shell. User drags of the popup's own drag
 //   logic are mirrored onto the shell and remembered (per popup id, across
 //   sessions); optional width follow per panel
@@ -22,7 +22,7 @@
 
 import { saveSettings } from './settings.js';
 
-// Already wired by ST's initMovingUI — don't double-register.
+// Already wired by ST's initMovingUI �?don't double-register.
 const NATIVE_IDS = new Set([
     'sheld', 'left-nav-panel', 'right-nav-panel',
     'WorldInfo', 'floatingPrompt', 'logprobsViewer', 'cfgConfig',
@@ -41,11 +41,11 @@ const CONTAINER_TAGS = new Set([
 
 // Max distance (px) between a popup's top-left and a panel's original or
 // current top-left for the popup to attach to that panel (only used when
-// there is no recent interaction with a panel — see interactiveOwner).
+// there is no recent interaction with a panel �?see interactiveOwner).
 const ATTACH_DISTANCE = 260;
 
 // Height of the grip bar. The panel gets this much extra padding on the
-// handle side, so the bar overlays only padding — never content.
+// handle side, so the bar overlays only padding �?never content.
 const HANDLE_H = 16;
 
 // A popup appearing within this window after a pointerdown inside a panel is
@@ -67,8 +67,7 @@ function isSelfWrite(el) { return performance.now() - (selfWriteAt.get(el) ?? -1
 // Direct-manipulation tracker for attached popups/shells. A popup position
 // write only counts as a user drag when the pointer is down on that popup (or
 // was released <300ms ago); a shell resize likewise. Extensions re-anchor
-// reused popups at their spawn coordinates when swapping content ("顶掉") —
-// those programmatic jumps must never become "user placements".
+// reused popups at their spawn coordinates when swapping content ("顶掉") �?// those programmatic jumps must never become "user placements".
 let popupPtr = { el: null, until: 0 };
 function onPopupPtrDown(e) {
     for (const [id, state] of panelStates) {
@@ -142,7 +141,7 @@ function passesBasic(el) {
     if (cs.display === 'none' || cs.visibility === 'hidden') return false;
     const r = el.getBoundingClientRect();
     if (r.width < 40 || r.height < 16) return false;
-    // Skip near-fullscreen roots — those are page scaffolding, not panels.
+    // Skip near-fullscreen roots �?those are page scaffolding, not panels.
     if (r.width * r.height > window.innerWidth * window.innerHeight * 0.95) return false;
     return true;
 }
@@ -175,8 +174,8 @@ function createHandle(panel, side) {
     const handle = document.createElement('div');
     handle.id = `${panel.id}header`;
     // dragElement only starts a drag when the mousedown target itself carries
-    // .drag-grabber. The BAR carries it, so the whole strip drags — not just
-    // the ⠿ glyph (buttons are safe: their e.target has no .drag-grabber).
+    // .drag-grabber. The BAR carries it, so the whole strip drags �?not just
+    // the �?glyph (buttons are safe: their e.target has no .drag-grabber).
     // Without this, the space-evenly gaps between buttons were dead zones,
     // and misses near the bottom-right fell into ST's 16px corner-resize
     // detection ("drag turns into resize").
@@ -184,21 +183,20 @@ function createHandle(panel, side) {
     handle.title = '拖动此栏移动面板';
     handle.dataset.side = side;
     handle.innerHTML = `
-        <span class="drag-grabber ptr-grip" title="拖动移动面板">⠿</span>
-        <button type="button" class="ptr-follow" data-dim="p" title="从该面板打开的弹窗自动跟随面板">弹</button>
-        <button type="button" class="ptr-follow" data-dim="w" title="附着弹窗跟随面板宽度">宽</button>
-        <button type="button" class="ptr-follow" data-dim="x" title="弹窗横向：左对齐/右对齐/关闭，点击循环切换">左</button>
-        <button type="button" class="ptr-follow" data-dim="y" title="弹窗纵向：上方/下方/关闭，点击循环切换">上</button>
-        <button type="button" class="ptr-dock" title="取消悬浮，恢复原位置（再次拖动手柄可重新悬浮）">归</button>
-        <button type="button" class="ptr-side" title="切换手柄位置：面板顶部 / 底部">⇅</button>`;
+        <span class="drag-grabber ptr-grip" title="拖动移动面板">�?/span>
+        <button type="button" class="ptr-follow" data-dim="p" title="从该面板打开的弹窗自动跟随面�?>�?/button>
+        <button type="button" class="ptr-follow" data-dim="w" title="附着弹窗跟随面板宽度">�?/button>
+        <button type="button" class="ptr-follow" data-dim="x" title="弹窗横向：左对齐/右对�?关闭，点击循环切�?>�?/button>
+        <button type="button" class="ptr-follow" data-dim="y" title="弹窗纵向：上�?下方/关闭，点击循环切�?>�?/button>
+        <button type="button" class="ptr-dock" title="取消悬浮，恢复原位置（再次拖动手柄可重新悬浮�?>�?/button>
+        <button type="button" class="ptr-side" title="切换手柄位置：面板顶�?/ 底部">�?/button>`;
     // In-panel: the handle moves with the panel by construction, and absolute
     // positioning keeps it from disturbing the panel's own layout.
     panel.prepend(handle);
 
     // Keep panel-internal mousedown/click handlers (and our own resize-corner
     // detection) from seeing handle interactions; same-element listeners such
-    // as dragElement's header binding still fire (stopPropagation ≠
-    // stopImmediatePropagation).
+    // as dragElement's header binding still fire (stopPropagation �?    // stopImmediatePropagation).
     handle.addEventListener('mousedown', e => e.stopPropagation());
     handle.addEventListener('click', e => e.stopPropagation());
 
@@ -311,13 +309,13 @@ function dockPanel(panel) {
     state.origLeft = state.lastLeft = r.left;
     state.origTop = state.lastTop = r.top;
     glueHandle(panel);
-    toastr.info(`#${panel.id} 已恢复原位置；拖动 ⠿ 手柄可重新悬浮`, 'Pretext 渲染增强');
+    toastr.info(`#${panel.id} 已恢复原位置；拖�?�?手柄可重新悬浮`, 'Pretext 渲染增强');
 }
 
-const ALIGN_LABEL = { left: '左对齐', right: '右对齐', off: '关闭（保持出现位置）' };
+const ALIGN_LABEL = { left: '左对�?, right: '右对�?, off: '关闭（保持出现位置）' };
 const SIDE_LABEL = { top: '面板上方', bottom: '面板下方', off: '关闭（保持出现位置）' };
-const ALIGN_MARK = { left: '左', right: '右', off: '关' };
-const SIDE_MARK = { top: '上', bottom: '下', off: '关' };
+const ALIGN_MARK = { left: '�?, right: '�?, off: '�? };
+const SIDE_MARK = { top: '�?, bottom: '�?, off: '�? };
 
 function refreshFollowButtons(panel) {
     const state = panelStates.get(panel.id);
@@ -325,20 +323,20 @@ function refreshFollowButtons(panel) {
     state.handle.querySelector('[data-dim="p"]')?.classList.toggle('active', state.followPopup);
     state.handle.querySelector('[data-dim="w"]')?.classList.toggle('active', state.followW);
     // 左右/上下 are 3-state cycles; the button TEXT shows the current state
-    // (绿 = 第一态, 橙 = 第二态, 灰 = 关).
+    // (�?= 第一�? �?= 第二�? �?= �?.
     const xBtn = state.handle.querySelector('[data-dim="x"]');
     if (xBtn) {
         xBtn.textContent = ALIGN_MARK[state.popupAlign] ?? ALIGN_MARK.left;
         xBtn.classList.toggle('active', state.popupAlign === 'left');
         xBtn.classList.toggle('active-alt', state.popupAlign === 'right');
-        xBtn.title = `弹窗横向：${ALIGN_LABEL[state.popupAlign] ?? ALIGN_LABEL.left}（点击循环：左→右→关）`;
+        xBtn.title = `弹窗横向�?{ALIGN_LABEL[state.popupAlign] ?? ALIGN_LABEL.left}（点击循环：左→右→关）`;
     }
     const yBtn = state.handle.querySelector('[data-dim="y"]');
     if (yBtn) {
         yBtn.textContent = SIDE_MARK[state.popupSide] ?? SIDE_MARK.top;
         yBtn.classList.toggle('active', state.popupSide === 'top');
         yBtn.classList.toggle('active-alt', state.popupSide === 'bottom');
-        yBtn.title = `弹窗纵向：${SIDE_LABEL[state.popupSide] ?? SIDE_LABEL.top}（点击循环：上→下→关）`;
+        yBtn.title = `弹窗纵向�?{SIDE_LABEL[state.popupSide] ?? SIDE_LABEL.top}（点击循环：上→下→关）`;
     }
 }
 
@@ -414,7 +412,7 @@ function clearAttachments(state) {
     for (const pop of [...state.attachments.keys()]) detachPopup(state, pop);
 }
 
-/** [左右] Cycle attached popups through 左对齐 → 右对齐 → 关闭（自由）.
+/** [左右] Cycle attached popups through 左对�?�?右对�?�?关闭（自由）.
  *  The chosen state is also the default for newly attached popups. */
 const ALIGN_CYCLE = { left: 'right', right: 'off', off: 'left' };
 function toggleAlignX(panel) {
@@ -428,14 +426,14 @@ function toggleAlignX(panel) {
     }
     for (const [pop, att] of state.attachments) {
         att.snapX = state.popupAlign === 'off' ? null : state.popupAlign;
-        if (!att.snapX) freezeOffset(panel, att, 'x'); // 关: stay where it is
+        if (!att.snapX) freezeOffset(panel, att, 'x'); // �? stay where it is
         layoutShell(panel, att);
         persistPopup(panel.id, pop, att);
     }
     refreshFollowButtons(panel);
 }
 
-/** [上下] Cycle attached popups through 上方 → 下方 → 关闭（自由）. */
+/** [上下] Cycle attached popups through 上方 �?下方 �?关闭（自由）. */
 const SIDE_CYCLE = { top: 'bottom', bottom: 'off', off: 'top' };
 function toggleSideY(panel) {
     const state = panelStates.get(panel.id);
@@ -448,7 +446,7 @@ function toggleSideY(panel) {
     }
     for (const [pop, att] of state.attachments) {
         att.snapY = state.popupSide === 'off' ? null : state.popupSide;
-        if (!att.snapY) freezeOffset(panel, att, 'y'); // 关: stay where it is
+        if (!att.snapY) freezeOffset(panel, att, 'y'); // �? stay where it is
         layoutShell(panel, att);
         persistPopup(panel.id, pop, att);
     }
@@ -466,8 +464,8 @@ function freezeOffset(panel, att, axis) {
 }
 
 /** Position a popup's shell against the panel. Snapped shells are anchored
- *  by the matching EDGE (上 → bottom-anchored, 右 → right-anchored), so
- *  content growth or a swapped-in popup re-glues itself with zero JS — that
+ *  by the matching EDGE (�?�?bottom-anchored, �?�?right-anchored), so
+ *  content growth or a swapped-in popup re-glues itself with zero JS �?that
  *  self-gluing is the whole point of the shell. Manual placements (snap off)
  *  use the remembered panel-relative offset. */
 function layoutShell(panel, att) {
@@ -553,7 +551,7 @@ function endShellResize() {
 
 /** Pin a user-driven shell resize (CSS resize doesn't mutate the style
  *  attribute, so this runs from the shell's ResizeObserver). Content-driven
- *  hugging changes are ignored — only pointer-driven resizes pin a size. */
+ *  hugging changes are ignored �?only pointer-driven resizes pin a size. */
 function adoptShellResize(pop) {
     for (const [id, state] of panelStates) {
         const att = state.attachments.get(pop);
@@ -573,13 +571,12 @@ function adoptShellResize(pop) {
 
 /** Watch an attached popup for hide/show cycles and user drags. The shell
  *  does all positioning, so this is much simpler than before:
- *  - hidden → hide the shell; shown again → re-glue the shell (extensions
+ *  - hidden �?hide the shell; shown again �?re-glue the shell (extensions
  *    respawn/re-anchor popups at will; inside the shell that's inert);
  *  - a user dragging the popup via its OWN drag logic (inline left/top
  *    writes while the pointer is on it) is mirrored onto the shell and
  *    becomes the remembered manual placement;
- *  - anything else (programmatic re-anchors, content swaps) is ignored —
- *    the shell hugs and stays glued by itself. */
+ *  - anything else (programmatic re-anchors, content swaps) is ignored �? *    the shell hugs and stays glued by itself. */
 function adoptPopupAdjustment(pop) {
     for (const [id, state] of panelStates) {
         const att = state.attachments.get(pop);
@@ -668,7 +665,7 @@ function findOwnerPanel(popRect) {
 }
 
 /** The panel the user just interacted with (pointerdown inside it), if the
- *  interaction is fresh — popups appearing now almost certainly belong to it,
+ *  interaction is fresh �?popups appearing now almost certainly belong to it,
  *  no matter where on screen they open. */
 function interactiveOwner() {
     if (!lastInteraction.id) return null;
@@ -686,7 +683,7 @@ function maybeAttach(el) {
         if (state.attachments.has(el)) return; // already attached
     }
     // Never attach something living inside a wired panel (it already follows
-    // its parent naturally) — nor an ANCESTOR of one (follow-cycle).
+    // its parent naturally) �?nor an ANCESTOR of one (follow-cycle).
     for (const [id] of panelStates) {
         const p = document.getElementById(id);
         if (p && (p.contains(el) || el.contains(p))) return;
@@ -715,7 +712,7 @@ function maybeAttach(el) {
         att.offX = saved.offX;
         att.offY = saved.offY;
     } else {
-        // No snap on an axis → keep the popup's appeared offset relative to
+        // No snap on an axis �?keep the popup's appeared offset relative to
         // the nearer anchor. Flip the default side if it would fall off-screen.
         const nearX = Math.abs(popRect.left - state.origLeft) < Math.abs(popRect.left - cur.left)
             ? state.origLeft : cur.left;
@@ -733,14 +730,14 @@ function maybeAttach(el) {
     const shell = document.createElement('div');
     shell.className = 'ptr-pick-ui ptr-pop-shell';
     const popZ = parseInt(getComputedStyle(el).zIndex, 10);
-    shell.style.zIndex = String(Number.isFinite(popZ) ? Math.max(popZ, 99999) : 30000);
+    shell.style.zIndex = String(Number.isFinite(popZ) ? Math.max(popZ, 99999) : 31000);
     el.before(shell);
     shell.appendChild(el);
     el.classList.add('ptr-shelled');
     att.shell = shell;
 
     state.attachments.set(el, att);
-    // CSS resize on the shell doesn't mutate the style attribute — a
+    // CSS resize on the shell doesn't mutate the style attribute �?a
     // ResizeObserver on the shell adopts user resizes.
     att.ro = new ResizeObserver(() => adoptShellResize(el));
     att.ro.observe(shell);
@@ -1163,7 +1160,7 @@ function wirePanel(el) {
     setTimeout(() => { if (panelStates.has(el.id)) applySavedPosition(el); }, 1000);
     setTimeout(() => { if (panelStates.has(el.id)) applySavedPosition(el); }, 3000);
 
-    // Migration: popupAlign used to be a boolean (true = 左对齐).
+    // Migration: popupAlign used to be a boolean (true = 左对�?.
     const migAlign = prev?.popupAlign === true ? 'left'
         : prev?.popupAlign === false ? 'off'
             : (prev?.popupAlign ?? 'left');
@@ -1243,7 +1240,7 @@ function wirePanel(el) {
         relayoutPanel(el, state);
     });
     state.resizeObserver.observe(el);
-    // Absolute handle scrolls with panel content — keep it glued.
+    // Absolute handle scrolls with panel content �?keep it glued.
     state.onScroll = () => glueHandle(el);
     el.addEventListener('scroll', state.onScroll, { passive: true });
     // Popups usually open right after a click inside the panel: remember the
@@ -1383,7 +1380,7 @@ function showConfirmBar(el) {
     confirmBar.className = 'ptr-pick-ui ptr-confirm-bar';
     confirmBar.innerHTML = `
         <span data-role="label">已选中 <b>#${el.id}</b></span>
-        <button class="menu_button" data-act="parent" title="选择更外层的父元素">父级 ↑</button>
+        <button class="menu_button" data-act="parent" title="选择更外层的父元�?>父级 �?/button>
         <button class="menu_button" data-act="ok">确认</button>
         <button class="menu_button" data-act="cancel">取消</button>`;
     document.body.appendChild(confirmBar);
@@ -1391,7 +1388,7 @@ function showConfirmBar(el) {
     confirmBar.querySelector('[data-act="parent"]').addEventListener('click', () => {
         const parent = parentCandidateOf(pendingEl);
         if (!parent) {
-            toastr.info('没有更外层可拾取的父元素了', 'Pretext 渲染增强');
+            toastr.info('没有更外层可拾取的父元素�?, 'Pretext 渲染增强');
             return;
         }
         pendingEl.classList.remove('ptr-pick-pending');
@@ -1436,7 +1433,7 @@ function onPickerClick(e) {
     e.stopPropagation();
     const el = hoverEl;
     if (!el) {
-        toastr.warning('该元素不可拾取：需要有 id（页面根容器除外）', 'Pretext 渲染增强');
+        toastr.warning('该元素不可拾取：需要有 id（页面根容器除外�?, 'Pretext 渲染增强');
         return;
     }
     hoverEl.classList.remove('ptr-pick-candidate');
@@ -1479,6 +1476,7 @@ function exitPicker() {
 
 function scanAdded(nodes) {
     const reg = registry();
+    if (Object.keys(reg).length === 0) return; // no picked panels, nothing to do
     for (const node of nodes) {
         if (!(node instanceof HTMLElement)) continue;
         if (node.id && reg[node.id]) { console.log('[pretext] scanAdded found registered panel', node.id); wirePanel(node); }
@@ -1521,8 +1519,10 @@ function startObserver() {
     domObserver = new MutationObserver(muts => {
         const added = muts.flatMap(m => [...m.addedNodes]);
         if (added.length) scanAdded(added);
+        const reg = registry();
+        if (Object.keys(reg).length === 0) return; // no panels, nothing to attach/adjust
         // Many popups pre-exist in the DOM and are only SHOWN via a class or
-        // style flip (no childList mutation) — catch those too. Style flips
+        // style flip (no childList mutation) �?catch those too. Style flips
         // on already-attached popups are the user moving/resizing them:
         // adopt those as the new remembered placement.
         for (const m of muts) {
@@ -1542,8 +1542,7 @@ function startObserver() {
 // --- Native reset recovery ------------------------------------------------------
 // ST's resetMovablePanels clears inline top/left/right/bottom/height/width/margin
 // (this section describes ST's behavior for reference; our panels are unaffected
-// we floated from static flow that leaves position:fixed with no coordinates —
-// they collapse or fly off-screen ("组件消失"). Restore their in-flow layout and
+// we floated from static flow that leaves position:fixed with no coordinates �?// they collapse or fly off-screen ("组件消失"). Restore their in-flow layout and
 // re-float on the next drag instead.// --- Settings extras UI -------------------------------------------------------
 
 function renderExtras() {
@@ -1556,14 +1555,14 @@ function renderExtras() {
                 <span title="${id}">#${id}</span>
                 <span class="ptr-panel-remove fa-solid fa-xmark" data-ptr-remove="${id}" title="移除"></span>
             </div>`).join('')
-        : '<small class="ptr-hint">尚未选择任何子窗口</small>';
+        : '<small class="ptr-hint">尚未选择任何子窗�?/small>';
 
     settingsRoot.html(`
         <div class="ptr-setting-row">
             <div class="menu_button" id="ptr-picker-toggle">
-                ${pickerActive ? '取消拾取 (Esc)' : '拾取子窗口…'}
+                ${pickerActive ? '取消拾取 (Esc)' : '拾取子窗口�?}
             </div>
-            <small class="ptr-hint">用法：① 点上方按钮进入拾取模式 ② 像 F12 选元素一样点击目标（任何有 id 的元素都行，含其他扩展添加的；可用"父级↑"向外扩大选择）③ 确认后拖面板内 ⠿ 手柄移动、拖右下角调宽高。从面板打开的弹窗会自动跟随并紧贴面板；手柄按钮：[弹] 弹窗跟随开关，[宽] 弹窗宽度跟随面板，[左/右/关] 弹窗横向三态循环（左对齐/右对齐/关闭），[上/下/关] 弹窗纵向三态循环（贴上方/贴下方/关闭，贴合侧在弹窗高度变化时保持紧贴），按钮文字即当前状态；[归] 取消悬浮恢复原位，[⇅] 切换手柄在面板顶部/底部；弹窗可直接拖动/缩放，调整会被记忆</small>
+            <small class="ptr-hint">用法：① 点上方按钮进入拾取模�?�?�?F12 选元素一样点击目标（任何�?id 的元素都行，含其他扩展添加的；可�?父级�?向外扩大选择）③ 确认后拖面板�?�?手柄移动、拖右下角调宽高。从面板打开的弹窗会自动跟随并紧贴面板；手柄按钮：[弹] 弹窗跟随开关，[宽] 弹窗宽度跟随面板，[�?�?关] 弹窗横向三态循环（左对�?右对�?关闭），[�?�?关] 弹窗纵向三态循环（贴上�?贴下�?关闭，贴合侧在弹窗高度变化时保持紧贴），按钮文字即当前状态；[归] 取消悬浮恢复原位，[⇅] 切换手柄在面板顶�?底部；弹窗可直接拖动/缩放，调整会被记�?/small>
         </div>
         <div class="ptr-panel-list">${list}</div>
     `);
