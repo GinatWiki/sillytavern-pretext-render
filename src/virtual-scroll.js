@@ -16,6 +16,7 @@ import { layout } from '../lib/pretext.js';
 import { getTextMetrics, prepareCached } from './utils.js';
 
 const FALLBACK_HEIGHT = 120;
+const BOTTOM_SAFE_COUNT = 10;
 // Content that breaks text-based height estimation.
 const SKIP_CONTENT_SEL = 'pre, table, img, iframe, video';
 
@@ -29,6 +30,18 @@ let observed = new WeakSet();
 
 function mesElements() {
     return document.querySelectorAll('#chat .mes');
+}
+
+function isNearBottom(mes) {
+    const all = document.querySelectorAll('#chat .mes');
+    const len = all.length;
+    if (len < 2) return true;
+    let idx = 0;
+    while (idx < len) {
+        if (all[idx] === mes) return (len - idx) <= BOTTOM_SAFE_COUNT;
+        idx++;
+    }
+    return false;
 }
 
 function ensureMetrics(sampleEl) {
@@ -73,6 +86,9 @@ function estimateHeight(mes) {
 }
 
 function virtualize(mes) {
+    // Keep the bottom N messages always fully rendered so streaming and
+    // scroll-bar height stay stable.
+    if (isNearBottom(mes)) return;
     // Only pay for an estimate until the browser has a real remembered size.
     if (!mes.dataset.ptrEstimated) {
         mes.style.containIntrinsicSize = `auto ${estimateHeight(mes)}px`;

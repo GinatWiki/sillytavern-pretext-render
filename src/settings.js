@@ -12,7 +12,7 @@ export const DEFAULT_SETTINGS = {
     streamStabilize: true,     // reserve height during streaming, batched scroll
     bubbleShrinkwrap: false,   // opt-in: fit bubble width to widest line
     virtualScroll: true,       // content-visibility virtualization for long chats
-    virtualOverscan: 3,        // screens beyond viewport kept fully rendered
+    virtualOverscan: 5,        // screens beyond viewport kept fully rendered
     movingPanels: false,       // enhanced MovingUI: drag any panel
     movingPanelsList: {},      // picked panel ids -> { injectedHeader }
 };
